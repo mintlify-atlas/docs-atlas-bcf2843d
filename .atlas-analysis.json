@@ -1,0 +1,158 @@
+{
+  "projectType": "saas",
+  "projectName": "GB App - Power BI Report Manager",
+  "projectDescription": "A comprehensive Power BI report management platform with user authentication, role-based access control, and business intelligence features.",
+  "theme": "linden",
+  "primaryColor": "#0078D4",
+  "lightColor": "#50E6FF",
+  "darkColor": "#004578",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/authentication",
+              "features/power-bi-integration",
+              "features/user-management",
+              "features/report-management",
+              "features/role-permissions"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment",
+              "configuration/database",
+              "configuration/power-bi-api",
+              "configuration/ldap"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/production",
+              "deployment/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Modules",
+        "groups": [
+          {
+            "group": "Business Modules",
+            "pages": [
+              "modules/design-requests",
+              "modules/price-lists",
+              "modules/technical-routes"
+            ]
+          },
+          {
+            "group": "Administration",
+            "pages": [
+              "modules/dashboard",
+              "modules/users",
+              "modules/roles",
+              "modules/reports",
+              "modules/filters"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "api/authentication/overview",
+              "api/authentication/two-factor"
+            ]
+          },
+          {
+            "group": "Reports",
+            "pages": [
+              "api/reports/list",
+              "api/reports/create",
+              "api/reports/view",
+              "api/reports/filters"
+            ]
+          },
+          {
+            "group": "Users & Roles",
+            "pages": [
+              "api/users/management",
+              "api/roles/permissions"
+            ]
+          },
+          {
+            "group": "Business APIs",
+            "pages": [
+              "api/design/requests",
+              "api/price-list/search",
+              "api/technical-routes/crud"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Architecture",
+            "pages": [
+              "development/architecture",
+              "development/database-schema",
+              "development/frontend-structure"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "development/setup",
+              "development/coding-standards",
+              "development/testing"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Power BI report embedding and management",
+    "Role-based access control with granular permissions",
+    "Two-factor authentication and LDAP integration",
+    "Design request workflow management",
+    "Price list search and export functionality",
+    "Technical routes management",
+    "Docker-based deployment"
+  ],
+  "publicApiSurface": [
+    "POST /login - User authentication",
+    "GET /dashboard - Main dashboard",
+    "GET /reports - List all reports",
+    "GET /reports/{groupId}/{reportId}/view - View Power BI report",
+    "POST /reports - Create new report",
+    "GET /users - User management",
+    "POST /users/update-reports - Assign reports to users",
+    "GET /roles - Role management",
+    "POST /roles - Create new role",
+    "GET /design/request - Design requests",
+    "GET /lista-precios - Price list module",
+    "GET /rutas-tecnicas - Technical routes module",
+    "POST /reports/import - Import Power BI reports",
+    "GET /report/filters - Report filter management"
+  ]
+}
