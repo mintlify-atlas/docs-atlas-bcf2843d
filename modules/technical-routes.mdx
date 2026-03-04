@@ -1,0 +1,504 @@
+---
+title: Technical Routes (Rutas Técnicas)
+description: Create and manage technical visit routes with client search, address management, and collaborative route planning
+---
+
+## Overview
+
+The Technical Routes module enables advisors and technicians to plan, manage, and track technical visit routes. It features client search integration, address management, automatic route numbering, and collaborative route planning where multiple advisors can contribute to shared routes.
+
+**Controller:** `RutaTecnicaController` (app/Http/Controllers/RutaTecnicaController.php:13)  
+**Model:** `RutaTecnica` (app/Models/RutaTecnica.php:9)  
+**Vue Components:**
+- `resources/js/Pages/RutasTecnicas/index.vue`
+- `resources/js/Pages/RutasTecnicas/Create.vue`
+- `resources/js/Pages/RutasTecnicas/Edit.vue`
+- `resources/js/Pages/RutasTecnicas/Show.vue`
+
+**Database:** Uses `senco360` connection, table `RT_rutastecnicas`
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Route Management" icon="route">
+    Create weekly routes with start/end dates and multiple visits
+  </Card>
+  <Card title="Client Search" icon="magnifying-glass">
+    Real-time client search from SQL Server view with advisor assignment validation
+  </Card>
+  <Card title="Address Management" icon="location-dot">
+    Fetch client addresses dynamically with contact recommendations
+  </Card>
+  <Card title="Collaborative Routes" icon="users">
+    Multiple advisors can add visits to shared routes with technicians
+  </Card>
+  <Card title="Auto-Numbering" icon="hashtag">
+    Automatic route number generation with format RT-YYYYMMDD-XXXX
+  </Card>
+  <Card title="Auto-Close" icon="lock">
+    Routes automatically close on Friday at 2 PM
+  </Card>
+</CardGroup>
+
+## Data Model
+
+The `RutaTecnica` model represents individual visits within a route:
+
+```php
+protected $fillable = [
+    'NumeroRuta',          // Route identifier (e.g., RT-20260304-0001)
+    'FechaInicio',         // Route start date
+    'FechaFin',            // Route end date
+    'Nit',                 // Client NIT/ID
+    'NombreCliente',       // Client name
+    'DireccionCompleta',   // Full address
+    'FechaVisita',         // Scheduled visit date
+    'NomContacto',         // Contact person name
+    'TelContacto',         // Contact phone
+    'CodVendedor',         // Advisor code (owner of visit)
+    'CodTecnico',          // Assigned technician code
+    'Observaciones',       // Notes/observations
+    'cerrada',             // Route closed status
+    'fecha_cierre'         // Close timestamp
+];
+```
+
+### Key Attributes
+
+- **Primary Key:** `IdVisita` (auto-increment)
+- **Route Grouping:** `NumeroRuta` - All visits with same route number belong together
+- **Ownership:** `CodVendedor` - The advisor who created the visit
+- **Assignment:** `CodTecnico` - The technician who will perform the visit
+
+## Permissions
+
+Routes require specific permissions configured via middleware (RutaTecnicaController.php:18-23):
+
+- `rutas-tecnicas.crear`: Create routes and add visits
+- `rutas-tecnicas.ver`: View routes
+- `rutas-tecnicas.editar`: Edit routes
+- `rutas-tecnicas.eliminar`: Delete routes
+- `rutas-tecnicas.ver-todos`: View all routes (supervisors/admins)
+
+Special roles with full access:
+- `super-admin`
+- `AsistenteVentas`
+- `Gerencia`
+- `supervisor`
+
+## API Endpoints
+
+### List Routes
+
+```http
+GET /rutas-tecnicas
+```
+
+Display routes for the authenticated user. Supervisors see all routes; advisors see only their own and shared routes.
+
+**Query Parameters:**
+- `fecha_inicio`: Filter by start date
+- `fecha_fin`: Filter by end date
+
+**Response Data:**
+- `rutas`: Grouped routes with visit counts
+- `filtros`: Applied filter values
+- `permisos`: User permissions object
+- `error`: Error message (if user has no vendor code)
+
+**Route Grouping Logic:**
+Visits are grouped by `NumeroRuta` and returned with:
+- `NumeroRuta`: Route identifier
+- `FechaInicio`: Start date (formatted: YYYY-MM-DD Day)
+- `FechaFin`: End date (formatted: YYYY-MM-DD Day)
+- `CodVendedor`: Route owner
+- `cerrada`: Closed status
+- `totalVisitas`: Visit count
+- `visitas`: Array of visits
+
+**Implementation:** RutaTecnicaController.php:49-163
+
+### View Route Details
+
+```http
+GET /rutas-tecnicas/{numeroRuta}
+```
+
+Display all visits for a specific route.
+
+**Access Control:**
+- Advisors can only view routes they own or where they share a technician
+- Supervisors/admins can view all routes
+
+**Response:**
+```php
+[
+  'ruta' => [
+    'NumeroRuta' => 'RT-20260304-0001',
+    'FechaInicio' => '2026-03-04 Jue',
+    'FechaFin' => '2026-03-07 Dom',
+    'CodVendedor' => 'V001',
+    'cerrada' => false,
+    'visitas' => [...]
+  ]
+]
+```
+
+**Implementation:** RutaTecnicaController.php:168-264
+
+### Create Route Form
+
+```http
+GET /rutas-tecnicas/create
+```
+
+Display form to create new route or add to existing open route.
+
+**Response Data:**
+- `technicalUsers`: Available technicians for the advisor
+- `rutaAbierta`: Existing open route data (if any)
+- `mensaje`: Informational message about existing route
+
+**Auto-Close Check:**
+If an open route should be closed (Friday after 2 PM), it's automatically closed before showing the form.
+
+**Implementation:** RutaTecnicaController.php:269-362
+
+### Store New Route
+
+```http
+POST /rutas-tecnicas
+```
+
+**Request Body:**
+```json
+{
+  "fecha_inicio": "2026-03-04",
+  "fecha_fin": "2026-03-07",
+  "visitas": [
+    {
+      "nit": "900123456",
+      "nombre_cliente": "Acme Corp",
+      "direccion_completa": "Calle 123 #45-67, Bogotá",
+      "fecha_visita": "2026-03-05",
+      "nom_contacto": "Juan Pérez",
+      "tel_contacto": "3001234567",
+      "cod_tecnico": "T001",
+      "observaciones": "Visita de mantenimiento"
+    }
+  ]
+}
+```
+
+**Validation:**
+- Validates using `StoreRutaTecnicaRequest`
+- Checks for existing open routes with overlapping dates
+- Validates technician codes against user's allowed technicians
+
+**Route Number Generation:**
+Automatic format: `RT-YYYYMMDD-####` (e.g., RT-20260304-0001)
+
+**Collaborative Logic:**
+If an open route exists for the selected dates and technician:
+- User is redirected to edit that route
+- Multiple advisors can contribute visits to the same route
+
+**Implementation:** RutaTecnicaController.php:367-493
+
+### Edit Route Form
+
+```http
+GET /rutas-tecnicas/{numeroRuta}/edit
+```
+
+Display form to add/edit/remove visits from an existing route.
+
+**Access Control:**
+- Users can only edit their own visits
+- Supervisors/admins can edit any visit
+- Closed routes cannot be edited
+
+**Response Data:**
+- `numeroRuta`: Route identifier
+- `fecha_inicio`: Start date (formatted)
+- `fecha_fin`: End date (formatted)
+- `fecha_inicio_raw`: Start date (YYYY-MM-DD)
+- `fecha_fin_raw`: End date (YYYY-MM-DD)
+- `visitas`: All visits with ownership flags
+- `technicalUsers`: Available technicians
+
+**Visit Ownership:**
+Each visit includes `es_propia` boolean indicating if current user owns it.
+
+**Implementation:** RutaTecnicaController.php:599-692
+
+### Update Route
+
+```http
+PUT /rutas-tecnicas/{numeroRuta}
+```
+
+**Request Body:**
+```json
+{
+  "fecha_inicio": "2026-03-04",
+  "fecha_fin": "2026-03-07",
+  "visitas": [
+    {
+      "idVisita": 123,  // Existing visit
+      "nit": "900123456",
+      "nombre_cliente": "Acme Corp",
+      "direccion_completa": "Calle 123 #45-67",
+      "fecha_visita": "2026-03-05",
+      "nom_contacto": "Juan Pérez",
+      "tel_contacto": "3001234567",
+      "cod_tecnico": "T001",
+      "observaciones": "Updated notes"
+    },
+    {
+      // New visit without idVisita
+      "nit": "800987654",
+      "nombre_cliente": "New Client",
+      // ...
+    }
+  ]
+}
+```
+
+**Update Logic:**
+1. Existing visits (with `idVisita`) are updated
+2. New visits (without `idVisita`) are created with current user's `CodVendedor`
+3. Visits not in the array are deleted (only if owned by current user)
+
+**Ownership Protection:**
+- Users can only update/delete their own visits
+- Supervisors/admins can modify any visit
+- Error thrown if user tries to modify another advisor's visit
+
+**Implementation:** RutaTecnicaController.php:697-869
+
+## Client Search API
+
+### Search Clients
+
+```http
+GET /rutas-tecnicas/api/clientes/buscar?q={search}
+```
+
+Real-time client search from SQL Server view `V_360_tec_clientes`.
+
+**Query Parameters:**
+- `q`: Search term (minimum 2 characters)
+
+**Filtering:**
+- Only returns clients assigned to the authenticated user's advisor code
+- Searches by NIT or client name
+- Limited to 10 results
+
+**Response:**
+```json
+[
+  {
+    "ClienteId": "900123456",
+    "Nit": "900123456",
+    "NombreCliente": "Acme Corporation",
+    "CodAsesor": "V001",
+    "NombreAsesor": "John Doe",
+    "Zona": "NORTE"
+  }
+]
+```
+
+**Implementation:** RutaTecnicaController.php:498-541
+
+**Permission Required:** `rutas-tecnicas.crear`
+
+### Get Client Addresses
+
+```http
+GET /rutas-tecnicas/api/clientes/{clienteId}/direcciones
+```
+
+Fetch all addresses (sedes) for a client from `V_360_tec_clientes_sedes`.
+
+**Response:**
+```json
+[
+  {
+    "DireccionId": "900123456-001",
+    "NitCliente": "900123456",
+    "Sede": "001",
+    "DireccionCompleta": "Calle 123 #45-67 - Oficina 301",
+    "Ciudad": "Bogotá",
+    "Departamento": "Cundinamarca",
+    "NombreContacto": "Juan Pérez"
+  }
+]
+```
+
+**Implementation:** RutaTecnicaController.php:546-594
+
+### Get Contact Recommendations
+
+```http
+GET /rutas-tecnicas/api/clientes/{clienteId}/contacto-recomendado?direccion={address}
+```
+
+Retrieve previously used contacts for a specific client address.
+
+**Query Parameters:**
+- `direccion`: Address to search for
+
+**Response:**
+```json
+{
+  "sugerencias": [
+    {
+      "nomContacto": "Juan Pérez",
+      "telContacto": "3001234567",
+      "fechaVisita": "2026-02-15",
+      "label": "Juan Pérez - 3001234567 (15/02/2026)"
+    }
+  ]
+}
+```
+
+**Logic:**
+- Searches last 10 visits to the same address
+- Removes duplicates by contact name + phone combination
+- Orders by most recent visit
+
+**Implementation:** RutaTecnicaController.php:875-934
+
+## Automatic Route Numbering
+
+Route numbers follow the format `RT-YYYYMMDD-####`:
+
+```php
+public static function generarNumeroRuta(): string
+{
+    $hoy = Carbon::now()->format('Ymd');
+    
+    $ultimaRuta = self::where('NumeroRuta', 'like', "RT-$hoy-%")
+        ->orderBy('NumeroRuta', 'desc')
+        ->value('NumeroRuta');
+    
+    if (!$ultimaRuta) {
+        $consecutivo = 1;
+    } else {
+        $partes = explode('-', $ultimaRuta);
+        $consecutivo = intval($partes[2]) + 1;
+    }
+    
+    return sprintf('RT-%s-%04d', $hoy, $consecutivo);
+}
+```
+
+**Example:** `RT-20260304-0001`, `RT-20260304-0002`
+
+**Implementation:** RutaTecnica.php:64-89
+
+## Auto-Close Feature
+
+Routes automatically close on Friday at 2 PM (14:00):
+
+```php
+public function debeCerrarse(): bool
+{
+    if ($this->cerrada) {
+        return false;
+    }
+    
+    $ahora = Carbon::now();
+    return ($ahora->dayOfWeek === Carbon::FRIDAY && $ahora->hour >= 15);
+}
+```
+
+**Trigger Points:**
+1. When viewing route index (`index()` method)
+2. When opening create form (`create()` method)
+
+**Implementation:** RutaTecnica.php:122-144
+
+## Date Formatting
+
+All dates include day of week in Spanish:
+
+```php
+private function formatearFecha($fecha)
+{
+    $dias = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    $diaSemana = $dias[$fecha->dayOfWeek];
+    return $fecha->format('Y-m-d') . ' ' . $diaSemana;
+}
+```
+
+**Output:** `2026-03-04 Jue`
+
+**Implementation:** RutaTecnicaController.php:29-44
+
+## Collaborative Routes
+
+Multiple advisors can work on the same route if they share technicians:
+
+### Shared Technician Logic
+
+Advisors can access routes where:
+1. They are the route owner (`CodVendedor` matches)
+2. OR they share a technician with the route (`CodTecnico` in their technicalUsers)
+
+### User Relationships
+
+The `User` model includes many-to-many relationships:
+
+```php
+public function technicalUsers(): BelongsToMany
+{
+    return $this->belongsToMany(self::class, 'advisor_technical_user', 
+                                'advisor_id', 'technical_user_id');
+}
+```
+
+**Implementation:** User.php:108-112
+
+### Access Control Examples
+
+<Note>
+**Scenario 1:** Advisor A creates route with Technician T1. Advisor B also works with T1.  
+**Result:** Both advisors can view and add visits to the route.
+</Note>
+
+<Note>
+**Scenario 2:** Advisor A tries to edit Advisor B's visit in a shared route.  
+**Result:** Error - "Esta visita fue agregada por el asesor B. Coordina directamente con él para modificarla."
+</Note>
+
+## Usage Workflow
+
+<Steps>
+  <Step title="Create New Route">
+    Navigate to `/rutas-tecnicas/create`. If an open route exists, you'll be prompted to use it or create new.
+  </Step>
+  <Step title="Set Route Dates">
+    Select start and end dates for the route (typically weekly).
+  </Step>
+  <Step title="Search Clients">
+    Use the client search to find clients assigned to you (minimum 2 characters).
+  </Step>
+  <Step title="Select Address">
+    Choose from client's registered addresses. System suggests previous contacts.
+  </Step>
+  <Step title="Schedule Visit">
+    Set visit date and select technician from your assigned technicians.
+  </Step>
+  <Step title="Add Multiple Visits">
+    Add more visits to the route. Route is saved with automatic numbering.
+  </Step>
+  <Step title="Edit Route">
+    Add/edit/remove visits until route is closed (Friday 2 PM or manually).
+  </Step>
+</Steps>
+
+<Info>
+**Important:** Once a route is closed, it cannot be modified. Plan visits before the Friday 2 PM deadline.
+</Info>

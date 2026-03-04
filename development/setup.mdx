@@ -1,0 +1,458 @@
+---
+title: Development Setup
+description: Set up GB App for local development with Docker or native environment
+---
+
+## Prerequisites
+
+Before setting up GB App for development, ensure you have the following installed:
+
+<CardGroup cols={2}>
+  <Card title="Docker" icon="docker">
+    Docker Desktop 4.0+ with Docker Compose
+  </Card>
+  <Card title="Git" icon="git">
+    Git 2.30+ for version control
+  </Card>
+  <Card title="Node.js" icon="node">
+    Node.js 18.16 LTS or higher
+  </Card>
+  <Card title="Composer" icon="php">
+    Composer 2.0+ (if not using Docker)
+  </Card>
+</CardGroup>
+
+## Quick Start with Docker
+
+The fastest way to get started is using Docker:
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/xDanielDC/Reportes-Senco.git
+    cd Reportes-Senco
+    ```
+  </Step>
+
+  <Step title="Copy environment file">
+    ```bash
+    cp .env.example .env
+    ```
+    
+    Edit `.env` to configure your local database and Power BI credentials. See [Environment Configuration](/configuration/environment) for details.
+  </Step>
+
+  <Step title="Build Docker containers">
+    ```bash
+    docker compose build
+    ```
+    
+    This builds the application container with PHP 8.2, Nginx, Supervisor, and Node.js.
+  </Step>
+
+  <Step title="Start containers">
+    ```bash
+    docker compose up -d
+    ```
+    
+    Starts the application and database containers in detached mode.
+  </Step>
+
+  <Step title="Set file permissions">
+    ```bash
+    docker compose exec app chmod -R 775 storage bootstrap/cache
+    docker compose exec app chown -R www-data:www-data storage bootstrap/cache
+    ```
+    
+    Ensures Laravel can write to required directories.
+  </Step>
+
+  <Step title="Install PHP dependencies">
+    ```bash
+    docker compose exec app composer install
+    ```
+  </Step>
+
+  <Step title="Install Node.js dependencies">
+    ```bash
+    docker compose exec app npm install
+    ```
+  </Step>
+
+  <Step title="Generate application key">
+    ```bash
+    docker compose exec app php artisan key:generate
+    ```
+  </Step>
+
+  <Step title="Run migrations and seeders">
+    ```bash
+    docker compose exec app php artisan migrate --seed
+    ```
+    
+    <Note>
+      The seeder creates a super admin user with default credentials displayed in the console.
+    </Note>
+  </Step>
+
+  <Step title="Build frontend assets">
+    For development with hot reload:
+    
+    ```bash
+    docker compose exec app npm run dev
+    ```
+    
+    Or build for production:
+    
+    ```bash
+    docker compose exec app npm run build
+    ```
+  </Step>
+
+  <Step title="Access the application">
+    Open your browser to `http://localhost` (or the port configured in `docker-compose.yml`).
+  </Step>
+</Steps>
+
+## Native Development Setup
+
+If you prefer to run without Docker:
+
+### System Requirements
+
+- PHP 8.1 or higher
+- MySQL 8.0 or SQL Server
+- Node.js 18.16 LTS
+- Composer 2.0+
+- Nginx or Apache
+
+<Steps>
+  <Step title="Clone repository">
+    ```bash
+    git clone https://github.com/xDanielDC/Reportes-Senco.git
+    cd Reportes-Senco
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    ```bash
+    composer install
+    npm install
+    ```
+  </Step>
+
+  <Step title="Configure environment">
+    ```bash
+    cp .env.example .env
+    php artisan key:generate
+    ```
+    
+    Edit `.env` with your database credentials:
+    
+    ```bash .env
+    DB_CONNECTION=mysql
+    DB_HOST=127.0.0.1
+    DB_PORT=3306
+    DB_DATABASE=gbapp
+    DB_USERNAME=root
+    DB_PASSWORD=your_password
+    ```
+  </Step>
+
+  <Step title="Create database">
+    ```sql
+    CREATE DATABASE gbapp CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    ```
+  </Step>
+
+  <Step title="Run migrations">
+    ```bash
+    php artisan migrate --seed
+    ```
+  </Step>
+
+  <Step title="Start development servers">
+    In separate terminal windows:
+    
+    ```bash
+    # Laravel development server
+    php artisan serve
+    
+    # Vite development server (hot reload)
+    npm run dev
+    ```
+  </Step>
+
+  <Step title="Access application">
+    Navigate to `http://localhost:8000`
+  </Step>
+</Steps>
+
+## Development Tools
+
+### Laravel Debugbar
+
+For development debugging, install Laravel Debugbar:
+
+```bash
+composer require barryvdh/laravel-debugbar --dev
+```
+
+It automatically displays debug information in development mode.
+
+### Laravel Telescope
+
+For advanced debugging and monitoring:
+
+```bash
+composer require laravel/telescope --dev
+php artisan telescope:install
+php artisan migrate
+```
+
+Access at `http://localhost/telescope`
+
+### Vue DevTools
+
+Install the Vue.js DevTools browser extension:
+
+- [Chrome Extension](https://chrome.google.com/webstore/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
+- [Firefox Add-on](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
+
+## IDE Configuration
+
+### VS Code Extensions
+
+Recommended extensions for development:
+
+```json .vscode/extensions.json
+{
+  "recommendations": [
+    "bmewburn.vscode-intelephense-client",
+    "vue.volar",
+    "bradlc.vscode-tailwindcss",
+    "mikestead.dotenv",
+    "editorconfig.editorconfig"
+  ]
+}
+```
+
+### PHPStorm Configuration
+
+1. Enable Laravel plugin
+2. Configure Laravel Idea plugin for enhanced autocomplete
+3. Set up PHP interpreter to match project version (8.1+)
+4. Enable Vue.js plugin for `.vue` file support
+
+## Running Tests
+
+### PHPUnit Tests
+
+Run the test suite:
+
+```bash
+# All tests
+php artisan test
+
+# Specific test file
+php artisan test tests/Feature/UserControllerTest.php
+
+# With coverage
+php artisan test --coverage
+```
+
+### Test Database
+
+Configure a separate test database in `phpunit.xml`:
+
+```xml phpunit.xml
+<php>
+    <env name="DB_CONNECTION" value="mysql"/>
+    <env name="DB_DATABASE" value="gbapp_test"/>
+</php>
+```
+
+## Code Quality Tools
+
+### Laravel Pint (Code Style)
+
+Format PHP code according to Laravel standards:
+
+```bash
+# Check code style
+./vendor/bin/pint --test
+
+# Fix code style
+./vendor/bin/pint
+```
+
+### ESLint (JavaScript)
+
+Add ESLint for Vue.js code quality:
+
+```bash
+npm install --save-dev eslint @vue/eslint-config-prettier
+npx eslint resources/js/**/*.vue
+```
+
+## Database Management
+
+### Migrations
+
+```bash
+# Create new migration
+php artisan make:migration create_example_table
+
+# Run pending migrations
+php artisan migrate
+
+# Rollback last migration
+php artisan migrate:rollback
+
+# Reset database (WARNING: destroys all data)
+php artisan migrate:fresh --seed
+```
+
+### Seeders
+
+```bash
+# Create seeder
+php artisan make:seeder ExampleSeeder
+
+# Run specific seeder
+php artisan db:seed --class=ExampleSeeder
+
+# Run all seeders
+php artisan db:seed
+```
+
+### Tinker (REPL)
+
+Interact with your application:
+
+```bash
+php artisan tinker
+
+# Example: Create a user
+>>> $user = User::create(['name' => 'Test', 'email' => 'test@example.com', 'password' => Hash::make('password')]);
+>>> $user->assignRole('admin');
+```
+
+## Environment Configuration
+
+### Development .env
+
+Key settings for development:
+
+```bash .env
+APP_ENV=local
+APP_DEBUG=true
+APP_URL=http://localhost
+
+LOG_CHANNEL=stack
+LOG_LEVEL=debug
+
+# Use database sessions for debugging
+SESSION_DRIVER=database
+
+# Disable caching during development
+CACHE_DRIVER=file
+QUEUE_CONNECTION=sync
+```
+
+### Power BI Development
+
+For Power BI integration testing, you need:
+
+1. Azure AD Application registration
+2. Power BI workspace access
+3. API credentials in `.env`
+
+See [Power BI API Configuration](/configuration/power-bi-api) for setup.
+
+## Common Development Tasks
+
+### Clear All Caches
+
+```bash
+php artisan optimize:clear
+```
+
+This clears:
+- Application cache
+- Route cache
+- Configuration cache
+- View cache
+- Compiled classes
+
+### Generate IDE Helper Files
+
+For better autocomplete:
+
+```bash
+composer require --dev barryvdh/laravel-ide-helper
+php artisan ide-helper:generate
+php artisan ide-helper:models
+php artisan ide-helper:meta
+```
+
+### Rebuild Frontend Assets
+
+```bash
+# Clean build directory
+rm -rf public/build
+
+# Rebuild
+npm run build
+```
+
+## Troubleshooting
+
+### Permission Errors
+
+```bash
+# Fix storage and cache permissions
+sudo chown -R $USER:www-data storage bootstrap/cache
+sudo chmod -R 775 storage bootstrap/cache
+```
+
+### Database Connection Failed
+
+1. Verify MySQL is running: `sudo service mysql status`
+2. Check credentials in `.env`
+3. Test connection: `php artisan tinker` then `DB::connection()->getPdo();`
+
+### Vite Not Working
+
+1. Clear Node modules: `rm -rf node_modules package-lock.json`
+2. Reinstall: `npm install`
+3. Restart dev server: `npm run dev`
+
+### Docker Container Won't Start
+
+```bash
+# Check logs
+docker compose logs app
+
+# Rebuild containers
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Coding Standards" href="/development/coding-standards">
+    Learn the project's coding conventions
+  </Card>
+  <Card title="Testing Guide" href="/development/testing">
+    Write and run tests
+  </Card>
+  <Card title="Architecture" href="/development/architecture">
+    Understand the system architecture
+  </Card>
+  <Card title="API Reference" href="/api/authentication/overview">
+    Explore the API endpoints
+  </Card>
+</CardGroup>

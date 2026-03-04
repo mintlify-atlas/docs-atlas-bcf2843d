@@ -1,0 +1,557 @@
+---
+title: Report Management
+description: Configure Power BI reports, manage access tokens, and control report visibility for users
+---
+
+## Overview
+
+The Report Management module handles Power BI report configuration, embedding, access control, and token management. It provides interfaces for administrators to add reports and for all users to view their assigned reports.
+
+**Controller:** `ReportController` (app/Http/Controllers/ReportController.php:16)  
+**Model:** `Report` (app/Models/Report.php:11)  
+**Trait:** `PowerBITrait` (app/Traits/PowerBITrait.php)  
+**Vue Components:**
+- `resources/js/Pages/Report/Index.vue`
+- `resources/js/Pages/Report/View.vue`
+- `resources/js/Pages/Report/Import.vue`
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Report Configuration" icon="gear">
+    Configure Power BI report IDs, group IDs, and access levels
+  </Card>
+  <Card title="Token Management" icon="key">
+    Automatic generation and refresh of embed tokens
+  </Card>
+  <Card title="Import from Power BI" icon="cloud-arrow-down">
+    Import reports directly from Power BI workspace
+  </Card>
+  <Card title="User Assignment" icon="user-check">
+    Control which users can access each report
+  </Card>
+  <Card title="Filter Integration" icon="filter">
+    Apply user-specific filters to reports
+  </Card>
+  <Card title="Embedded Viewing" icon="square-up-right">
+    Seamlessly embed reports using Power BI JavaScript SDK
+  </Card>
+</CardGroup>
+
+## Data Model
+
+The `Report` model represents Power BI report configurations:
+
+```php
+protected $fillable = [
+    'name',              // Display name
+    'group_id',          // Power BI workspace/group ID
+    'report_id',         // Power BI report ID
+    'access_level',      // View, Edit, or Create
+    'dataset_id',        // Associated dataset ID
+    'user_id',           // Creator user ID
+    'token',             // Embed token (cached)
+    'expiration_date'    // Token expiration timestamp
+];
+```
+
+### Relationships
+
+**Created By (HasOne):**
+```php
+public function created_by(): HasOne
+{
+    return $this->hasOne(User::class, 'id', 'user_id');
+}
+```
+
+**Users (BelongsToMany):**
+```php
+public function user(): BelongsToMany
+{
+    return $this->belongsToMany(User::class, 'user_reports')
+        ->withPivot('report_id', 'user_id');
+}
+```
+
+**Filters (BelongsToMany):**
+```php
+public function filters(): BelongsToMany
+{
+    return $this->belongsToMany(ReportFilter::class, 'pvt_report_user_filters', 
+                                'report_id', 'filter_id')
+        ->where('user_id', '=', Auth::id())
+        ->withPivot('user_id');
+}
+```
+
+**Implementation:** Report.php:41-63
+
+### Filter Array Accessor
+
+The model includes a computed attribute that formats filters for Power BI:
+
+```php
+public function getFilterArrayAttribute(): bool|string
+{
+    $filters = $this->filters->toArray();
+    $filters = collect($filters);
+    
+    $filters = $filters->map(function ($row) {
+        return [
+            '$schema' => 'http://powerbi.com/product/schema#basic',
+            'target' => [
+                'table' => $row['table'],
+                'column' => $row['column'],
+            ],
+            'operator' => $row['operator'],
+            'values' => $row['parse_values'],
+        ];
+    });
+    
+    return json_encode($filters);
+}
+```
+
+**Implementation:** Report.php:68-86
+
+## Permissions
+
+Report management routes require specific permissions (routes/web.php:105-161):
+
+- `report.create`: Create and edit reports
+- `report.edit`: Edit existing reports
+- `report.destroy`: Delete reports
+- `import-report`: Import reports from Power BI
+
+**Special Access:** Users with `super-admin` role can access all reports.
+
+## API Endpoints
+
+### List Reports
+
+```http
+GET /reports
+```
+
+Display reports accessible to the authenticated user.
+
+**Access Control:**
+- Super admins see all reports
+- Other users see only assigned reports
+
+**Response Data:**
+- `reports`: Collection of accessible reports
+
+**Implementation:** ReportController.php:38-49
+
+### View Report
+
+```http
+GET /reports/{groupId}/{reportId}/view
+```
+
+Embed and display a specific Power BI report.
+
+**Parameters:**
+- `groupId`: Power BI workspace/group ID
+- `reportId`: Power BI report ID
+
+**Access Control:**
+- Super admins can view any report
+- Other users can only view assigned reports
+- Returns 403 error if user doesn't have access
+
+**Token Management:**
+1. Check if report has valid embed token
+2. If token is null or expired, request new token from Power BI
+3. Cache token in database with expiration date
+4. Add user access token and embed URL to report object
+
+**Response Data:**
+```php
+[
+  'report' => [
+    'id' => 1,
+    'name' => 'Sales Dashboard',
+    'reportId' => 'abc123-def456-...',
+    'groupId' => 'xyz789-uvw012-...',
+    'token' => 'H4sIAAAAAAAA...',
+    'expiration_date' => '2026-03-04T15:30:00',
+    'userAccessToken' => 'eyJ0eXAiOiJKV1...',
+    'embedUrl' => 'https://app.powerbi.com/reportEmbed?reportId=...&groupId=...',
+    'filter_array' => '[{...}]',
+    'created_by' => {...},
+    'filters' => [...]
+  ]
+]
+```
+
+**Error Handling:**
+If token generation fails:
+- Redirects to report index
+- Displays danger banner with error message
+
+**Implementation:** ReportController.php:57-100
+
+### Create Report
+
+```http
+POST /reports
+```
+
+**Request Body:**
+```json
+{
+  "name": "Sales Dashboard",
+  "group_id": "abc123-def456-ghi789",
+  "report_id": "xyz789-uvw012-rst345",
+  "access_level": "View",
+  "dataset_id": "dataset-123-456"
+}
+```
+
+**Process:**
+1. Create new report record
+2. Set `user_id` to authenticated user
+3. Save to database
+4. Return updated reports list
+
+**Response:** JSON array of reports (200)
+
+**Implementation:** ReportController.php:105-118
+
+### Update Report
+
+```http
+PUT /reports/{id}
+```
+
+**Request Body:**
+```json
+{
+  "name": "Updated Sales Dashboard",
+  "group_id": "abc123-def456-ghi789",
+  "report_id": "xyz789-uvw012-rst345",
+  "access_level": "Edit",
+  "dataset_id": "dataset-123-456"
+}
+```
+
+**Response:** JSON array of reports (200)
+
+**Implementation:** ReportController.php:123-136
+
+### Delete Report
+
+```http
+DELETE /reports/{id}
+```
+
+**Process:**
+1. Delete report record
+2. Cascade removes user assignments and filters
+3. Return remaining reports
+
+**Response:** JSON array of remaining reports (200)
+
+**Implementation:** ReportController.php:142-153
+
+## Power BI Import
+
+The system includes functionality to import reports directly from Power BI workspace.
+
+### Import Interface
+
+```http
+GET /reports/import
+```
+
+Displays import interface for administrators.
+
+**Permission Required:** `import-report`
+
+**Implementation:** ImportReportController.php
+
+### Get Available Reports
+
+```http
+GET /reports/import/get-reports
+```
+
+Fetch list of reports from Power BI workspace.
+
+**Process:**
+1. Authenticate with Power BI using service principal or user credentials
+2. Query workspace for available reports
+3. Return report metadata (name, ID, group ID, dataset ID)
+
+**Permission Required:** `import-report`
+
+### Import Report
+
+```http
+POST /reports/import
+```
+
+Import selected report from Power BI workspace.
+
+**Request Body:**
+```json
+{
+  "group_id": "abc123-def456-ghi789",
+  "report_id": "xyz789-uvw012-rst345",
+  "dataset_id": "dataset-123-456",
+  "name": "Imported Sales Dashboard"
+}
+```
+
+**Permission Required:** `import-report`
+
+## Token Management
+
+Reports use two types of tokens:
+
+### User Access Token
+
+Obtained via `getUserAccessToken()` method from `PowerBITrait`:
+
+- Used to authenticate API requests to Power BI
+- Generated using Azure AD authentication
+- Typically valid for 1 hour
+- Automatically refreshed when expired
+
+### Report Embed Token
+
+Generated via `getReportAccessToken($userToken, $report)` method:
+
+- Used to embed reports in the application
+- Scoped to specific report and user
+- Cached in database (`reports.token` field)
+- Expiration stored in `reports.expiration_date`
+- Automatically refreshed when expired
+
+### Token Refresh Logic
+
+```php
+if ($report->token === null || Carbon::now() >= $report->expiration_date) {
+    $token = $this->getReportAccessToken($this->userAccessToken, $report);
+    
+    if ($token->status === 200) {
+        $report->token = $token->token;
+        $report->expiration_date = $token->expiration;
+        $report->save();
+    } else {
+        return redirect()->route('report.index')
+               ->dangerBanner($token->message);
+    }
+}
+```
+
+**Implementation:** ReportController.php:75-90
+
+<Info>
+Token caching significantly reduces API calls to Power BI and improves page load performance.
+</Info>
+
+## Access Levels
+
+Reports support different access levels:
+
+- **View**: Read-only access to report
+- **Edit**: Can modify report visuals and filters (within Power BI)
+- **Create**: Can create new pages and content
+
+<Note>
+Access level is set at the report configuration level, not per user. All users assigned to a report inherit the same access level.
+</Note>
+
+## User Assignment
+
+Reports are assigned to users through the `user_reports` pivot table:
+
+```php
+// Assign report to user
+$user->reports()->attach($reportId);
+
+// Remove report from user
+$user->reports()->detach($reportId);
+
+// Sync multiple reports
+$user->reports()->sync([1, 2, 3, 4]);
+```
+
+### Pivot Table Columns
+
+- `user_id`: Foreign key to users
+- `report_id`: Foreign key to reports
+- `show`: Boolean flag for dashboard visibility (default: false)
+
+## Report Filtering
+
+User-specific filters can be applied to reports:
+
+### Filter Configuration
+
+Filters are configured via the Report Filters module and assigned through the user management interface.
+
+### Filter Application
+
+When a report loads, the `filter_array` accessor generates a JSON structure:
+
+```json
+[
+  {
+    "$schema": "http://powerbi.com/product/schema#basic",
+    "target": {
+      "table": "Sales",
+      "column": "Region"
+    },
+    "operator": "In",
+    "values": ["North", "South"]
+  }
+]
+```
+
+This JSON is passed to the Power BI JavaScript SDK which applies the filters when embedding the report.
+
+### Filter Operators
+
+Supported operators:
+- `In`: Value is in list
+- `NotIn`: Value is not in list
+- `Equals`: Value equals
+- `NotEquals`: Value does not equal
+- `Contains`: String contains
+- `NotContains`: String does not contain
+- `GreaterThan`: Numeric greater than
+- `LessThan`: Numeric less than
+
+## Embed URL Structure
+
+Reports are embedded using the following URL pattern:
+
+```
+https://app.powerbi.com/reportEmbed?reportId={reportId}&groupId={groupId}
+```
+
+**Construction in Code:**
+```php
+$report->embedUrl = "https://app.powerbi.com/reportEmbed?reportId=$reportId&groupId=$groupId";
+```
+
+**Implementation:** ReportController.php:84, 94
+
+## Report Viewer Component
+
+The frontend uses Power BI JavaScript SDK to embed reports:
+
+```javascript
+import * as pbi from 'powerbi-client';
+
+const embedConfiguration = {
+    type: 'report',
+    tokenType: pbi.models.TokenType.Embed,
+    accessToken: report.token,
+    embedUrl: report.embedUrl,
+    id: report.reportId,
+    permissions: pbi.models.Permissions.Read,
+    filters: JSON.parse(report.filter_array),
+    settings: {
+        filterPaneEnabled: true,
+        navContentPaneEnabled: true
+    }
+};
+
+const powerbi = new pbi.service.Service(
+    pbi.factories.hpmFactory,
+    pbi.factories.wpmpFactory,
+    pbi.factories.routerFactory
+);
+
+const reportContainer = document.getElementById('reportContainer');
+const embeddedReport = powerbi.embed(reportContainer, embedConfiguration);
+```
+
+**Component Location:** resources/js/Components/ReportViewer.vue
+
+## Error Handling
+
+### Token Generation Failure
+
+If Power BI API fails to generate embed token:
+
+```php
+if ($token->status !== 200) {
+    return redirect()->route('report.index')
+           ->dangerBanner($token->message);
+}
+```
+
+**User Experience:** Redirects to report list with error message banner.
+
+### Report Not Found
+
+If report doesn't exist or user doesn't have access:
+
+```php
+if (!$report) {
+    abort(403);
+}
+```
+
+**User Experience:** 403 Forbidden error page.
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Descriptive Names" icon="tag">
+    Use clear report names that reflect content (e.g., "Monthly Sales Dashboard", "Inventory Levels Report").
+  </Card>
+  <Card title="Access Control" icon="lock">
+    Only assign reports to users who need them. Use filters to restrict data visibility.
+  </Card>
+  <Card title="Regular Cleanup" icon="broom">
+    Remove unused reports and revoke access from users who no longer need it.
+  </Card>
+  <Card title="Monitor Performance" icon="gauge">
+    Large reports with many filters can impact load times. Optimize Power BI datasets.
+  </Card>
+</CardGroup>
+
+## Usage Workflow
+
+<Steps>
+  <Step title="Configure Power BI">
+    Create report in Power BI Desktop and publish to workspace.
+  </Step>
+  <Step title="Import or Create">
+    Import report from Power BI using import interface, or manually create report configuration.
+  </Step>
+  <Step title="Set Access Level">
+    Choose appropriate access level (View, Edit, Create).
+  </Step>
+  <Step title="Assign Users">
+    Go to User Management and assign report to relevant users.
+  </Step>
+  <Step title="Configure Filters">
+    (Optional) Create and assign filters to restrict data visibility per user.
+  </Step>
+  <Step title="Test Access">
+    Log in as assigned user and verify report displays correctly with filters.
+  </Step>
+</Steps>
+
+## Related Modules
+
+<CardGroup cols={2}>
+  <Card title="Dashboard" icon="chart-line">
+    Displays embedded reports for users
+  </Card>
+  <Card title="Users" icon="users">
+    Assign reports to users
+  </Card>
+  <Card title="Report Filters" icon="filter">
+    Configure data filters for reports
+  </Card>
+</CardGroup>

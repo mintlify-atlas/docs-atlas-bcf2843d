@@ -1,0 +1,355 @@
+---
+title: 'Report Filters'
+description: 'Report filter CRUD operations for Power BI reports'
+---
+
+## Report Filters Overview
+
+Report filters define Power BI filter configurations that can be applied to reports. Filters target specific tables and columns with operators and values.
+
+## List All Filters
+
+Retrieve all available report filters.
+
+```bash
+GET /reports/filters
+```
+
+### Authentication & Permissions
+
+<ParamField header="Authorization" type="string" required>
+  Valid session or Sanctum token
+</ParamField>
+
+Requires one of:
+- `super-admin` role
+- `report.filter.index` permission
+- `report.filter.create` permission
+- `report.filter.update` permission
+- `report.filter.destroy` permission
+
+### Response
+
+<ResponseField name="filters" type="array">
+  Array of all filter objects
+</ResponseField>
+
+<ResponseField name="filters[].id" type="integer">
+  Filter ID
+</ResponseField>
+
+<ResponseField name="filters[].name" type="string">
+  Filter display name
+</ResponseField>
+
+<ResponseField name="filters[].table" type="string">
+  Power BI table name
+</ResponseField>
+
+<ResponseField name="filters[].column" type="string">
+  Power BI column name
+</ResponseField>
+
+<ResponseField name="filters[].operator" type="string">
+  Filter operator (In, NotIn, Equals, Contains, etc.)
+</ResponseField>
+
+<ResponseField name="filters[].values" type="string">
+  Raw filter values (comma-separated for 'In' operator)
+</ResponseField>
+
+<ResponseField name="filters[].parse_values" type="array|string">
+  Parsed values (array for 'In', string for others)
+</ResponseField>
+
+<ResponseField name="filters[].created_at" type="datetime">
+  Creation timestamp
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET https://your-domain.com/reports/filters \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+### Example Response
+
+```json
+{
+  "filters": [
+    {
+      "id": 1,
+      "name": "Region Filter",
+      "table": "Sales",
+      "column": "Region",
+      "operator": "In",
+      "values": "North,South,East",
+      "parse_values": ["North", "South", "East"],
+      "created_at": "2026-01-20 10:30:00 AM"
+    },
+    {
+      "id": 2,
+      "name": "Year Filter",
+      "table": "Date",
+      "column": "Year",
+      "operator": "Equals",
+      "values": "2026",
+      "parse_values": "2026",
+      "created_at": "2026-01-20 11:15:00 AM"
+    }
+  ]
+}
+```
+
+## Create Filter
+
+Create a new report filter.
+
+```bash
+POST /reports/filters
+```
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Descriptive name for the filter
+</ParamField>
+
+<ParamField body="table" type="string" required>
+  Power BI table name to filter
+</ParamField>
+
+<ParamField body="column" type="string" required>
+  Power BI column name to filter
+</ParamField>
+
+<ParamField body="operator" type="string" required>
+  Filter operator
+</ParamField>
+
+<ParamField body="values" type="string" required>
+  Filter values (comma-separated for 'In' operator)
+</ParamField>
+
+### Supported Operators
+
+- `In` - Match any value in list (values: "Value1,Value2,Value3")
+- `NotIn` - Exclude values in list
+- `Equals` - Exact match (values: "SingleValue")
+- `Contains` - Substring match
+- `GreaterThan` - Numeric comparison
+- `LessThan` - Numeric comparison
+- `GreaterThanOrEqual` - Numeric comparison
+- `LessThanOrEqual` - Numeric comparison
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/reports/filters \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Product Category Filter",
+    "table": "Products",
+    "column": "Category",
+    "operator": "In",
+    "values": "Electronics,Furniture,Clothing"
+  }'
+```
+
+### Example Response
+
+Returns array of all filters including the newly created one (200 status).
+
+```json
+[
+  {
+    "id": 1,
+    "name": "Region Filter",
+    "table": "Sales",
+    "column": "Region",
+    "operator": "In",
+    "values": "North,South,East",
+    "parse_values": ["North", "South", "East"]
+  },
+  {
+    "id": 3,
+    "name": "Product Category Filter",
+    "table": "Products",
+    "column": "Category",
+    "operator": "In",
+    "values": "Electronics,Furniture,Clothing",
+    "parse_values": ["Electronics", "Furniture", "Clothing"]
+  }
+]
+```
+
+## Update Filter
+
+Update an existing report filter.
+
+```bash
+PUT /reports/filters/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  Filter ID to update
+</ParamField>
+
+### Request Body
+
+Same fields as create (all optional):
+
+<ParamField body="name" type="string">
+  Updated filter name
+</ParamField>
+
+<ParamField body="table" type="string">
+  Updated table name
+</ParamField>
+
+<ParamField body="column" type="string">
+  Updated column name
+</ParamField>
+
+<ParamField body="operator" type="string">
+  Updated operator
+</ParamField>
+
+<ParamField body="values" type="string">
+  Updated values
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X PUT https://your-domain.com/reports/filters/3 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "values": "Electronics,Furniture,Clothing,Appliances"
+  }'
+```
+
+### Response
+
+Returns array of all filters with updates applied (200 status).
+
+## Delete Filter
+
+Delete a report filter.
+
+```bash
+DELETE /reports/filters/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  Filter ID to delete
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X DELETE https://your-domain.com/reports/filters/3 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+### Response
+
+Returns array of remaining filters (200 status).
+
+## Filter Application
+
+Filters are applied to reports through the pivot table `pvt_report_user_filters`:
+
+### Assign Filters to User Report
+
+Filters are assigned per user-report combination. See [User Management API](/api/users/management#update-user-report-filters) for filter assignment.
+
+## Power BI Filter Schema
+
+When applied to a report, filters are converted to Power BI filter objects:
+
+```json
+{
+  "$schema": "http://powerbi.com/product/schema#basic",
+  "target": {
+    "table": "Products",
+    "column": "Category"
+  },
+  "operator": "In",
+  "values": ["Electronics", "Furniture", "Clothing"]
+}
+```
+
+### Multiple Filters
+
+Multiple filters are combined as an array:
+
+```json
+[
+  {
+    "$schema": "http://powerbi.com/product/schema#basic",
+    "target": { "table": "Products", "column": "Category" },
+    "operator": "In",
+    "values": ["Electronics"]
+  },
+  {
+    "$schema": "http://powerbi.com/product/schema#basic",
+    "target": { "table": "Sales", "column": "Region" },
+    "operator": "In",
+    "values": ["North", "South"]
+  }
+]
+```
+
+## Error Responses
+
+### 500 Internal Server Error
+
+```json
+{
+  "message": "Error message from exception"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "message": "This action is unauthorized."
+}
+```
+
+## Implementation Notes
+
+**Source:** `app/Http/Controllers/ReportFilterController.php`
+
+### Model
+
+**Source:** `app/Models/ReportFilter.php`
+
+Fillable fields:
+- `name`, `table`, `column`, `operator`, `values`
+
+### Parse Values Accessor
+
+The `parse_values` attribute automatically parses values:
+- **Operator = 'In'**: Splits comma-separated string into array
+- **Other operators**: Returns lowercase string
+
+```php
+public function getParseValuesAttribute(): array|string
+{
+    return $this->operator === 'In' 
+        ? explode(',', $this->values) 
+        : strtolower($this->values);
+}
+```

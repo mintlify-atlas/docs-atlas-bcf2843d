@@ -1,0 +1,496 @@
+---
+title: LDAP Configuration
+description: Configure Active Directory LDAP integration for user authentication in GB App
+---
+
+## Overview
+
+GB App supports LDAP/Active Directory integration for user authentication through the LdapRecord Laravel package. This enables:
+
+- Hybrid authentication (local + LDAP users)
+- Automatic user synchronization from Active Directory
+- Single Sign-On (SSO) with corporate credentials
+- User attribute mapping
+
+## LdapRecord Package
+
+The LDAP functionality uses the LdapRecord Laravel package:
+
+```json composer.json
+"require": {
+    "directorytree/ldaprecord-laravel": "^3.4"
+}
+```
+
+## LDAP Configuration File
+
+```php config/ldap.php
+return [
+    'default' => env('LDAP_CONNECTION', 'default'),
+
+    'connections' => [
+        'default' => [
+            'hosts' => [env('LDAP_HOST', '127.0.0.1')],
+            'username' => env('LDAP_USERNAME', 'cn=user,dc=local,dc=com'),
+            'password' => env('LDAP_PASSWORD', 'secret'),
+            'port' => env('LDAP_PORT', 389),
+            'base_dn' => env('LDAP_BASE_DN', 'dc=local,dc=com'),
+            'timeout' => env('LDAP_TIMEOUT', 5),
+            'use_ssl' => env('LDAP_SSL', false),
+            'use_tls' => env('LDAP_TLS', false),
+            'use_sasl' => env('LDAP_SASL', false),
+        ],
+    ],
+
+    'logging' => [
+        'enabled' => env('LDAP_LOGGING', true),
+        'channel' => env('LOG_CHANNEL', 'stack'),
+        'level' => env('LOG_LEVEL', 'info'),
+    ],
+
+    'cache' => [
+        'enabled' => env('LDAP_CACHE', false),
+        'driver' => env('CACHE_DRIVER', 'file'),
+    ],
+];
+```
+
+## Environment Configuration
+
+### Basic LDAP Settings
+
+```bash .env
+LDAP_LOGGING=true
+LDAP_CONNECTION=default
+LDAP_HOST=dc01.company.local
+LDAP_USERNAME=cn=ldapbind,ou=Service Accounts,dc=company,dc=local
+LDAP_PASSWORD=BindAccountPassword
+LDAP_PORT=389
+LDAP_BASE_DN=dc=company,dc=local
+LDAP_TIMEOUT=5
+LDAP_SSL=false
+LDAP_TLS=false
+
+# User search base (adjust for your AD structure)
+LDAP_USER_SEARCH_BASE=ou=Users,dc=company,dc=local
+LDAP_DOMAIN=company.local
+```
+
+### Configuration Parameters
+
+- **LDAP_HOST**: Domain controller hostname or IP
+- **LDAP_USERNAME**: Bind account DN (requires read access to AD)
+- **LDAP_PASSWORD**: Bind account password
+- **LDAP_PORT**: LDAP port (389 standard, 636 for LDAPS, 3268 for Global Catalog)
+- **LDAP_BASE_DN**: Base Distinguished Name for searches
+- **LDAP_TIMEOUT**: Connection timeout in seconds
+- **LDAP_SSL**: Use LDAPS (port 636)
+- **LDAP_TLS**: Use STARTTLS
+- **LDAP_USER_SEARCH_BASE**: Specific OU to search for users
+- **LDAP_DOMAIN**: Domain name for email generation
+
+### SSL/TLS Configuration
+
+For secure LDAP connections:
+
+```bash .env
+LDAP_HOST=dc01.company.local
+LDAP_PORT=636
+LDAP_SSL=true
+LDAP_TLS=false
+```
+
+Or with STARTTLS:
+
+```bash .env
+LDAP_HOST=dc01.company.local
+LDAP_PORT=389
+LDAP_SSL=false
+LDAP_TLS=true
+```
+
+<Note>
+For production environments, always use SSL or TLS to encrypt LDAP traffic.
+</Note>
+
+## User Model LDAP Setup
+
+The User model includes LDAP authentication traits:
+
+```php app/Models/User.php
+use LdapRecord\Laravel\Auth\LdapAuthenticatable;
+use LdapRecord\Laravel\Auth\AuthenticatesWithLdap;
+
+class User extends Authenticatable
+{
+    use HasApiTokens;
+    use HasFactory;
+    use HasProfilePhoto;
+    use Notifiable;
+    use TwoFactorAuthenticatable;
+    use HasRoles;
+    use AuthenticatesWithLdap;
+
+    protected $fillable = [
+        'name',
+        'username',
+        'email',
+        'password',
+        'type',
+        'guid',           // LDAP GUID
+        'domain',         // LDAP domain
+        'is_ldap_user',   // LDAP user flag
+        'cedula',
+        'codigo_vendedor',
+        'advisor_id',
+    ];
+
+    public function isLdapUser(): bool
+    {
+        return $this->is_ldap_user && !empty($this->guid);
+    }
+}
+```
+
+## LDAP User Model
+
+Define your LDAP user model:
+
+```php app/Ldap/User.php
+use LdapRecord\Models\ActiveDirectory\User as BaseUser;
+
+class User extends BaseUser
+{
+    // Define custom attributes if needed
+    public static function boot()
+    {
+        parent::boot();
+    }
+}
+```
+
+## Hybrid Authentication
+
+GB App implements hybrid authentication supporting both local and LDAP users:
+
+```php app/Actions/Fortify/AuthenticateUserHybrid.php
+public function authenticate(Request $request)
+{
+    $credentials = $request->only('username', 'password');
+    $username = $credentials['username'];
+    $password = $credentials['password'];
+
+    // 1. Search for user in local database
+    $user = User::on('mysql')
+                ->where('username', $username)
+                ->orWhere('email', $username)
+                ->first();
+
+    // 2. If exists and is NOT LDAP user, authenticate locally
+    if ($user && !$user->is_ldap_user) {
+        if (Hash::check($password, $user->password)) {
+            Auth::login($user, $request->boolean('remember'));
+            return $user;
+        }
+        
+        throw ValidationException::withMessages([
+            'username' => ['Las credenciales proporcionadas son incorrectas.'],
+        ]);
+    }
+
+    // 3. If LDAP user or doesn't exist, try LDAP authentication
+    try {
+        $ldapConnection = Container::getDefaultConnection();
+        
+        // Search user in Active Directory
+        $ldapUser = \App\Ldap\User::where('samaccountname', '=', $username)->first();
+        
+        if (!$ldapUser) {
+            throw ValidationException::withMessages([
+                'username' => ['Usuario no encontrado en Active Directory.'],
+            ]);
+        }
+
+        // Attempt AD authentication
+        if (!$ldapConnection->auth()->attempt($ldapUser->getDn(), $password)) {
+            throw ValidationException::withMessages([
+                'username' => ['Contraseña incorrecta.'],
+            ]);
+        }
+
+        // 4. Successful authentication - Sync/Create local user
+        $user = $this->syncOrCreateUserFromLdap($ldapUser);
+        
+        Auth::login($user, $request->boolean('remember'));
+        
+        return $user;
+
+    } catch (\LdapRecord\LdapRecordException $e) {
+        Log::error('LDAP Authentication Error: ' . $e->getMessage());
+        
+        throw ValidationException::withMessages([
+            'username' => ['Error al conectar con Active Directory. Intente más tarde.'],
+        ]);
+    }
+}
+```
+
+## User Synchronization
+
+When LDAP users authenticate, their information is synced:
+
+```php app/Actions/Fortify/AuthenticateUserHybrid.php
+protected function syncOrCreateUserFromLdap($ldapUser): User
+{
+    $guid = $ldapUser->getConvertedGuid();
+    
+    // Search by GUID first
+    $user = User::on('mysql')
+                ->where('guid', $guid)
+                ->first();
+    
+    if (!$user) {
+        // Search by username
+        $user = User::on('mysql')
+                    ->where('username', $ldapUser->getFirstAttribute('samaccountname'))
+                    ->first();
+    }
+
+    $userData = [
+        'name' => $ldapUser->getFirstAttribute('cn'),
+        'username' => $ldapUser->getFirstAttribute('samaccountname'),
+        'email' => $ldapUser->getFirstAttribute('mail') ?? $ldapUser->getFirstAttribute('samaccountname') . '@' . env('LDAP_DOMAIN', 'domain.com'),
+        'guid' => $guid,
+        'domain' => env('LDAP_DOMAIN', 'AD'),
+        'is_ldap_user' => true,
+    ];
+
+    if ($user) {
+        // Update existing user
+        $user->update($userData);
+    } else {
+        // Create new user
+        $userData['password'] = Hash::make(uniqid()); // Random password (not used)
+        $user = User::create($userData);
+    }
+
+    return $user;
+}
+```
+
+### Mapped Attributes
+
+- **cn** → name
+- **samaccountname** → username
+- **mail** → email
+- **objectGUID** → guid
+
+## LDAP User Sync Command
+
+A command stub exists for batch user synchronization:
+
+```php app/Console/Commands/SyncLdapUsers.php
+class SyncLdapUsers extends Command
+{
+    protected $signature = 'app:sync-ldap-users';
+    protected $description = 'Command description';
+
+    public function handle()
+    {
+        // Implementation for batch sync
+    }
+}
+```
+
+You can implement this to sync users in batches:
+
+```php
+public function handle()
+{
+    $ldapUsers = \App\Ldap\User::get();
+    
+    foreach ($ldapUsers as $ldapUser) {
+        $this->syncUserFromLdap($ldapUser);
+    }
+    
+    $this->info('Synced ' . $ldapUsers->count() . ' users');
+}
+```
+
+## Database Structure
+
+LDAP fields in users table:
+
+```php database/migrations/2026_01_14_095321_add_ldap_fields_to_users_table.php
+Schema::table('users', function (Blueprint $table) {
+    $table->string('guid')->unique()->nullable()->after('id');
+    $table->string('domain')->nullable()->after('guid');
+    $table->boolean('is_ldap_user')->default(false)->after('domain');
+});
+```
+
+- **guid**: Active Directory objectGUID (unique identifier)
+- **domain**: LDAP domain name
+- **is_ldap_user**: Boolean flag to distinguish LDAP users from local users
+
+## Active Directory Requirements
+
+### Bind Account
+
+Create a service account in AD with:
+- Read access to user objects
+- No password expiration
+- Cannot change password
+- Strong password
+
+### User Attributes
+
+Ensure users have:
+- `samaccountname` (username)
+- `cn` (common name)
+- `mail` (email address)
+- `objectGUID` (automatically present)
+
+### Firewall
+
+Open firewall ports from application server to domain controller:
+- Port 389 (LDAP)
+- Port 636 (LDAPS)
+- Port 3268 (Global Catalog)
+
+## Testing LDAP Connection
+
+### Test in Tinker
+
+```bash
+docker compose exec app php artisan tinker
+```
+
+Run:
+
+```php
+// Test connection
+use LdapRecord\Container;
+$connection = Container::getDefaultConnection();
+$connection->connect();
+
+// Search for user
+$user = \App\Ldap\User::where('samaccountname', '=', 'testuser')->first();
+$user->getAttributes();
+
+// Test authentication
+$connection->auth()->attempt($user->getDn(), 'password');
+```
+
+### Enable LDAP Logging
+
+```bash .env
+LDAP_LOGGING=true
+LOG_LEVEL=debug
+```
+
+Check logs:
+
+```bash
+docker compose exec app tail -f storage/logs/laravel.log
+```
+
+## Common LDAP Queries
+
+### Find User by Username
+
+```php
+$user = \App\Ldap\User::where('samaccountname', '=', 'jdoe')->first();
+```
+
+### Find User by Email
+
+```php
+$user = \App\Ldap\User::where('mail', '=', 'jdoe@company.com')->first();
+```
+
+### Get All Users
+
+```php
+$users = \App\Ldap\User::get();
+```
+
+### Search in Specific OU
+
+```php
+$users = \App\Ldap\User::in('ou=Sales,dc=company,dc=local')->get();
+```
+
+## Security Best Practices
+
+<Steps>
+
+<Step title="Use SSL/TLS">
+Always encrypt LDAP connections in production:
+```bash
+LDAP_SSL=true
+LDAP_PORT=636
+```
+</Step>
+
+<Step title="Dedicated Bind Account">
+Create a dedicated service account for LDAP binding:
+- Minimal permissions (read-only)
+- Strong password
+- No interactive login
+</Step>
+
+<Step title="Validate Certificates">
+For LDAPS, ensure proper certificate validation. Don't disable certificate checks in production.
+</Step>
+
+<Step title="Implement Account Lockout">
+Implement failed login attempt tracking to prevent brute force attacks.
+</Step>
+
+<Step title="Audit LDAP Access">
+Monitor LDAP authentication logs for suspicious activity.
+</Step>
+
+</Steps>
+
+## Troubleshooting
+
+<Accordion title="Cannot connect to LDAP server">
+- Verify LDAP_HOST is correct and reachable
+- Check firewall allows port 389/636
+- Test with ldapsearch command:
+  ```bash
+  ldapsearch -x -H ldap://dc01.company.local -D "cn=bind,dc=company,dc=local" -w password -b "dc=company,dc=local"
+  ```
+- Check DNS resolution of domain controller
+</Accordion>
+
+<Accordion title="Authentication fails for LDAP users">
+- Verify bind account credentials
+- Check LDAP_BASE_DN is correct
+- Ensure user exists in AD
+- Check user account is not disabled/locked
+- Verify password is correct
+- Check LDAP logs for error messages
+</Accordion>
+
+<Accordion title="User attributes not syncing">
+- Verify attribute names match AD schema
+- Check bind account has read access to attributes
+- Ensure attributes are populated in AD
+- Check for null handling in sync logic
+</Accordion>
+
+<Accordion title="SSL/TLS certificate errors">
+- Verify certificate is valid and not expired
+- Check certificate chain is complete
+- Ensure server hostname matches certificate CN
+- For self-signed certs, may need to configure trust
+</Accordion>
+
+## Next Steps
+
+- [Set up authentication](/features/authentication)
+- [Create and manage users](/features/user-management)
+- [Configure roles and permissions](/features/role-permissions)

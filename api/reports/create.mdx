@@ -1,0 +1,251 @@
+---
+title: 'Create Report'
+description: 'POST /reports - Create a new Power BI report entry'
+---
+
+## Create Report
+
+Create a new Power BI report entry in the system.
+
+```bash
+POST /reports
+```
+
+### Authentication & Permissions
+
+<ParamField header="Authorization" type="string" required>
+  Valid session or Sanctum token
+</ParamField>
+
+Requires one of:
+- `super-admin` role
+- `report.create` permission
+- `report.edit` permission
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Display name for the report
+</ParamField>
+
+<ParamField body="group_id" type="string" required>
+  Power BI workspace/group ID (UUID format)
+</ParamField>
+
+<ParamField body="report_id" type="string" required>
+  Power BI report ID (UUID format)
+</ParamField>
+
+<ParamField body="dataset_id" type="string" required>
+  Power BI dataset ID (UUID format)
+</ParamField>
+
+<ParamField body="access_level" type="string" default="View">
+  Access level for the report (typically "View")
+</ParamField>
+
+### Response
+
+<ResponseField name="status" type="integer">
+  HTTP status code (200 on success)
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Array of all reports accessible to the user (including newly created)
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/reports \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{
+    "name": "Q1 Sales Dashboard",
+    "group_id": "f089354e-8366-4e18-aea3-4cb4a3a50b48",
+    "report_id": "5b218778-e7a5-4d73-8187-f10824047715",
+    "dataset_id": "cfafbeb1-8037-4d0c-896e-a46fb27ff229",
+    "access_level": "View"
+  }'
+```
+
+### Example Response
+
+```json
+[
+  {
+    "id": 1,
+    "name": "Existing Report",
+    "group_id": "f089354e-8366-4e18-aea3-4cb4a3a50b48",
+    "report_id": "7d329888-f9b6-5e84-9298-g21935158826",
+    "dataset_id": "dfbfcfc2-9148-5e1d-997f-b57gc38gg330",
+    "access_level": "View",
+    "user_id": 1,
+    "created_at": "2026-01-15 14:30:00",
+    "updated_at": "2026-01-15 14:30:00"
+  },
+  {
+    "id": 2,
+    "name": "Q1 Sales Dashboard",
+    "group_id": "f089354e-8366-4e18-aea3-4cb4a3a50b48",
+    "report_id": "5b218778-e7a5-4d73-8187-f10824047715",
+    "dataset_id": "cfafbeb1-8037-4d0c-896e-a46fb27ff229",
+    "access_level": "View",
+    "user_id": 1,
+    "created_at": "2026-03-04 10:15:00",
+    "updated_at": "2026-03-04 10:15:00"
+  }
+]
+```
+
+## Update Report
+
+Update an existing Power BI report entry.
+
+```bash
+PUT /reports/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  Report database ID
+</ParamField>
+
+### Request Body
+
+Same fields as create (all optional for updates):
+
+<ParamField body="name" type="string">
+  Updated display name
+</ParamField>
+
+<ParamField body="group_id" type="string">
+  Updated Power BI workspace ID
+</ParamField>
+
+<ParamField body="report_id" type="string">
+  Updated Power BI report ID
+</ParamField>
+
+<ParamField body="dataset_id" type="string">
+  Updated Power BI dataset ID
+</ParamField>
+
+<ParamField body="access_level" type="string">
+  Updated access level
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X PUT https://your-domain.com/reports/2 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{
+    "name": "Q1 Sales Dashboard - Updated"
+  }'
+```
+
+### Response
+
+Returns array of all accessible reports with updates applied (200 status).
+
+## Delete Report
+
+Delete a Power BI report entry from the system.
+
+```bash
+DELETE /reports/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  Report database ID to delete
+</ParamField>
+
+### Permissions
+
+Requires one of:
+- `super-admin` role
+- `report.create` permission
+- `report.destroy` permission
+
+### Example Request
+
+```bash
+curl -X DELETE https://your-domain.com/reports/2 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+### Response
+
+Returns array of remaining accessible reports (200 status).
+
+```json
+[
+  {
+    "id": 1,
+    "name": "Existing Report",
+    "group_id": "f089354e-8366-4e18-aea3-4cb4a3a50b48",
+    "report_id": "7d329888-f9b6-5e84-9298-g21935158826",
+    "dataset_id": "dfbfcfc2-9148-5e1d-997f-b57gc38gg330",
+    "access_level": "View",
+    "user_id": 1
+  }
+]
+```
+
+## Implementation Notes
+
+**Source:** `app/Http/Controllers/ReportController.php:105-153`
+
+### Automatic Fields
+
+- `user_id` is automatically set to the authenticated user's ID
+- `created_at` and `updated_at` timestamps are managed by Laravel
+- `token` and `expiration_date` are managed by the Power BI integration trait
+
+### Response Behavior
+
+- Super admins receive reports with `user`, `created_by`, and `filters` relationships
+- Regular users receive only their assigned reports without eager loading
+
+### Validation
+
+While not explicitly shown in the controller, these fields are fillable:
+- `name`, `group_id`, `report_id`, `access_level`, `dataset_id`, `user_id`, `token`, `expiration_date`
+
+## Error Responses
+
+### 403 Forbidden
+
+```json
+{
+  "message": "This action is unauthorized."
+}
+```
+
+### 404 Not Found (Update/Delete)
+
+```json
+{
+  "message": "Report not found."
+}
+```
+
+### 422 Validation Error
+
+```json
+{
+  "message": "The given data was invalid.",
+  "errors": {
+    "name": ["The name field is required."],
+    "group_id": ["The group id field is required."]
+  }
+}
+```

@@ -1,0 +1,233 @@
+---
+title: Design Request Workflow
+description: Manage design requests with priorities, states, tasks, and tracking through the complete design lifecycle
+---
+
+## Overview
+
+The Design Request module allows users to create, track, and manage design requests from reception through delivery. It provides comprehensive workflow management with priorities, states, time tracking, and task assignments.
+
+**Controller:** `DesignRequestController` (app/Http/Controllers/DesignRequestController.php:19)  
+**Model:** `DesignRequest` (app/Models/DesignRequest.php:10)  
+**Vue Component:** `resources/js/Pages/Design/Request.vue`
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Request Management" icon="clipboard-list">
+    Create and track design requests with detailed metadata including dates, priorities, and assignments
+  </Card>
+  <Card title="Workflow States" icon="diagram-project">
+    Track requests through multiple states with time-based status indicators
+  </Card>
+  <Card title="Task Management" icon="tasks">
+    Break down requests into manageable tasks with individual tracking
+  </Card>
+  <Card title="Multi-User Assignment" icon="users">
+    Assign designers, sellers, and customers to each request
+  </Card>
+</CardGroup>
+
+## Data Model
+
+The `DesignRequest` model includes the following relationships:
+
+```php
+protected $fillable = [
+    'comments', 'reception_date', 'tentative_date', 'real_date', 
+    'delivery_date', 'customer_approved_date', 'estimated_arrival_sherpa_date',
+    'observations', 'priority_id', 'designer_id', 'seller_document', 
+    'customer_id', 'time_state_id', 'state_id'
+];
+```
+
+### Relationships
+
+- **priority**: `DesignPriority` - Request priority level
+- **designer**: `User` - Assigned designer
+- **seller**: `Seller` - Associated seller
+- **customer**: `User` - Customer requesting design
+- **time_state**: `DesignTimeState` - Time-based state (on time, delayed, etc.)
+- **state**: `DesignState` - Workflow state
+- **tasks**: `DesignTask[]` - Related tasks
+
+## API Endpoints
+
+### List Design Requests
+
+```http
+GET /design/request
+```
+
+Returns all design requests with priorities, states, designers, sellers, and customers.
+
+**Response includes:**
+- All design requests
+- Available priorities
+- Available time states
+- Available workflow states
+- List of designers (users with type='designer')
+- List of sellers
+- Customers (local and external from SSF database)
+
+**Implementation:** DesignRequestController.php:24-58
+
+### Create Design Request
+
+```http
+POST /design/request
+```
+
+**Request Body:**
+```json
+{
+  "priority_id": 1,
+  "designer_id": 5,
+  "seller_document": "123456",
+  "customer_id": 10,
+  "comments": "Design request details",
+  "reception_date": "2026-03-01",
+  "tentative_date": "2026-03-10",
+  "real_date": "2026-03-08",
+  "delivery_date": "2026-03-15",
+  "customer_approved_date": "2026-03-12",
+  "estimated_arrival_sherpa_date": "2026-03-20",
+  "time_state_id": 1,
+  "state_id": 2,
+  "observations": "Additional notes"
+}
+```
+
+**Response:** JSON array of all design requests (200) or error message (500)
+
+**Implementation:** DesignRequestController.php:63-89
+
+### Update Design Request
+
+```http
+PUT /design/request/{id}
+```
+
+**Request Body:**
+```json
+{
+  "name": "Updated request name"
+}
+```
+
+**Implementation:** DesignRequestController.php:94-107
+
+### Update Request State
+
+```http
+POST /design/request/update-state
+```
+
+Special endpoint to update specific state properties dynamically.
+
+**Request Body:**
+```json
+{
+  "id": 1,
+  "property": "state_id",
+  "state_id": 3
+}
+```
+
+**Implementation:** DesignRequestController.php:168-177
+
+### View Request Details
+
+```http
+GET /design/request/{id}
+```
+
+Returns detailed view of a single design request with all related data.
+
+**Implementation:** DesignRequestController.php:128-163
+
+### Delete Design Request
+
+```http
+DELETE /design/request/{id}
+```
+
+**Implementation:** DesignRequestController.php:112-123
+
+## User Interface
+
+The design request interface includes:
+
+### Main Table View
+- **Columns:** ID, Priority, Designer, Seller, Customer, Comments, Reception Date, Tentative Date, Real Date, Delivery Date, Customer Approval Date, Sherpa Date, Time State, State, Observations, Actions
+- **Actions:** View details, Edit, Delete
+- **Create Button:** Opens modal to create new request
+
+### Request Details View
+Displays comprehensive information including:
+- All request metadata
+- Associated tasks
+- State history
+- Assignment information
+
+## Related Modules
+
+<CardGroup cols={2}>
+  <Card title="Design Priorities" icon="flag">
+    Manage priority levels for design requests
+  </Card>
+  <Card title="Design States" icon="circle-check">
+    Configure workflow states (e.g., Draft, In Progress, Review, Complete)
+  </Card>
+  <Card title="Design Time States" icon="clock">
+    Track time-based status (On Time, Delayed, Critical)
+  </Card>
+  <Card title="Design Tasks" icon="list-check">
+    Break down requests into actionable tasks
+  </Card>
+</CardGroup>
+
+## Customer Data Sources
+
+The module integrates customer data from two sources:
+
+1. **Local Customers**: From GBapp.dbo.users table (type='customer')
+2. **External Customers**: From SSF database (un_tercegener table) where:
+   - `eobcodigo = 'AC'`
+   - `tgeesclie = 'S'`
+   - Active clients only
+
+<Note>
+Customers are grouped by type ('local' or 'external') and ordered by name for easy selection.
+</Note>
+
+## Workflow Example
+
+<Steps>
+  <Step title="Create Request">
+    Sales team creates a design request with customer information, priority, and tentative delivery date.
+  </Step>
+  <Step title="Assign Designer">
+    Manager assigns the request to an available designer and sets the workflow state.
+  </Step>
+  <Step title="Create Tasks">
+    Designer breaks down the request into specific tasks for tracking progress.
+  </Step>
+  <Step title="Track Progress">
+    Update time state and workflow state as work progresses. Track actual dates vs. tentative dates.
+  </Step>
+  <Step title="Customer Approval">
+    Record customer approval date when design is accepted.
+  </Step>
+  <Step title="Delivery & Sherpa">
+    Track final delivery date and estimated Sherpa arrival date.
+  </Step>
+</Steps>
+
+## Permissions
+
+Access to design request functionality is controlled through the route middleware in routes/web.php:164-173.
+
+<Info>
+All design request routes are protected by the `auth:sanctum` middleware and require email verification.
+</Info>

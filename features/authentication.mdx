@@ -1,0 +1,336 @@
+---
+title: Authentication System
+description: Login, two-factor authentication, LDAP integration, and password recovery in GB App
+---
+
+## Overview
+
+GB App uses Laravel Jetstream with Fortify for authentication, providing:
+
+- Local username/email and password authentication
+- Two-factor authentication (2FA)
+- LDAP/Active Directory integration (hybrid authentication)
+- Password recovery
+- Session management
+- Remember me functionality
+
+## Hybrid Authentication System
+
+GB App implements a hybrid authentication system that supports both local database users and LDAP users.
+
+### Authentication Flow
+
+The authentication logic is handled by `AuthenticateUserHybrid` action:
+
+```php app/Actions/Fortify/AuthenticateUserHybrid.php
+public function authenticate(Request $request)
+{
+    $credentials = $request->only('username', 'password');
+    $username = $credentials['username'];
+    $password = $credentials['password'];
+
+    // 1. Search for user in local database
+    $user = User::on('mysql')
+                ->where('username', $username)
+                ->orWhere('email', $username)
+                ->first();
+
+    // 2. If exists and is NOT LDAP user, authenticate locally
+    if ($user && !$user->is_ldap_user) {
+        if (Hash::check($password, $user->password)) {
+            Auth::login($user, $request->boolean('remember'));
+            return $user;
+        }
+        
+        throw ValidationException::withMessages([
+            'username' => ['Las credenciales proporcionadas son incorrectas.'],
+        ]);
+    }
+
+    // 3. If LDAP user or doesn't exist, try LDAP authentication
+    try {
+        $ldapConnection = Container::getDefaultConnection();
+        
+        // Search user in Active Directory
+        $ldapUser = \App\Ldap\User::where('samaccountname', '=', $username)->first();
+        
+        if (!$ldapUser) {
+            throw ValidationException::withMessages([
+                'username' => ['Usuario no encontrado en Active Directory.'],
+            ]);
+        }
+
+        // Attempt AD authentication
+        if (!$ldapConnection->auth()->attempt($ldapUser->getDn(), $password)) {
+            throw ValidationException::withMessages([
+                'username' => ['Contraseña incorrecta.'],
+            ]);
+        }
+
+        // 4. Successful authentication - Sync/Create local user
+        $user = $this->syncOrCreateUserFromLdap($ldapUser);
+        
+        Auth::login($user, $request->boolean('remember'));
+        
+        return $user;
+
+    } catch (\LdapRecord\LdapRecordException $e) {
+        Log::error('LDAP Authentication Error: ' . $e->getMessage());
+        
+        throw ValidationException::withMessages([
+            'username' => ['Error al conectar con Active Directory. Intente más tarde.'],
+        ]);
+    }
+}
+```
+
+### LDAP User Synchronization
+
+When an LDAP user logs in, their information is synced to the local database:
+
+```php app/Actions/Fortify/AuthenticateUserHybrid.php
+protected function syncOrCreateUserFromLdap($ldapUser): User
+{
+    $guid = $ldapUser->getConvertedGuid();
+    
+    // Search by GUID first
+    $user = User::on('mysql')
+                ->where('guid', $guid)
+                ->first();
+    
+    if (!$user) {
+        // Search by username
+        $user = User::on('mysql')
+                    ->where('username', $ldapUser->getFirstAttribute('samaccountname'))
+                    ->first();
+    }
+
+    $userData = [
+        'name' => $ldapUser->getFirstAttribute('cn'),
+        'username' => $ldapUser->getFirstAttribute('samaccountname'),
+        'email' => $ldapUser->getFirstAttribute('mail') ?? $ldapUser->getFirstAttribute('samaccountname') . '@' . env('LDAP_DOMAIN', 'domain.com'),
+        'guid' => $guid,
+        'domain' => env('LDAP_DOMAIN', 'AD'),
+        'is_ldap_user' => true,
+    ];
+
+    if ($user) {
+        // Update existing user
+        $user->update($userData);
+    } else {
+        // Create new user
+        $userData['password'] = Hash::make(uniqid()); // Random password (not used)
+        $user = User::create($userData);
+    }
+
+    return $user;
+}
+```
+
+## User Model
+
+The User model includes authentication traits and LDAP support:
+
+```php app/Models/User.php
+use HasApiTokens;
+use HasFactory;
+use HasProfilePhoto;
+use Notifiable;
+use TwoFactorAuthenticatable;
+use HasRoles;
+use AuthenticatesWithLdap;
+
+protected $fillable = [
+    'name',
+    'username',
+    'email',
+    'password',
+    'type',
+    'guid',           // LDAP GUID
+    'domain',         // LDAP domain
+    'is_ldap_user',   // Flag for LDAP users
+    'cedula',
+    'codigo_vendedor',
+    'advisor_id',
+];
+
+protected $hidden = [
+    'password',
+    'remember_token',
+    'two_factor_recovery_codes',
+    'two_factor_secret',
+];
+
+protected $casts = [
+    'email_verified_at' => 'datetime',
+    'created_at' => 'datetime:Y-m-d h:i:s A',
+    'updated_at' => 'datetime:Y-m-d h:i:s A',
+    'is_ldap_user' => 'boolean',
+];
+
+public function isLdapUser(): bool
+{
+    return $this->is_ldap_user && !empty($this->guid);
+}
+```
+
+## Login Routes
+
+Authentication routes are handled by Laravel Fortify. The main routes include:
+
+```php routes/web.php
+Route::get('/', function () {
+    return redirect()->route('login');
+});
+
+Route::middleware(['auth:sanctum', config('jetstream.auth_session'), 'verified'])->group(function () {
+    Route::get('dashboard', [DashboardController::class, 'index'])
+        ->name('dashboard');
+    // ... protected routes
+});
+```
+
+## Two-Factor Authentication (2FA)
+
+GB App includes Laravel Jetstream's built-in 2FA functionality:
+
+### Enabling 2FA
+
+Users can enable 2FA from their profile:
+
+1. Navigate to Profile > Two Factor Authentication
+2. Click "Enable" to generate a QR code
+3. Scan the QR code with an authenticator app (Google Authenticator, Authy, etc.)
+4. Enter the confirmation code
+5. Save recovery codes in a safe place
+
+### 2FA Database Fields
+
+The `users` table includes these 2FA columns:
+
+```php
+'two_factor_secret' => 'text', // Encrypted 2FA secret
+'two_factor_recovery_codes' => 'text', // Encrypted recovery codes
+'two_factor_confirmed_at' => 'timestamp', // When 2FA was confirmed
+```
+
+<Warning>
+Two-factor authentication is optional but highly recommended for admin accounts and users with sensitive permissions.
+</Warning>
+
+## Password Recovery
+
+### Reset Password Flow
+
+1. User clicks "Forgot Password" on login page
+2. User enters email address
+3. System sends password reset email
+4. User clicks link in email
+5. User enters new password
+6. Password is updated using bcrypt hashing
+
+### Password Reset Action
+
+```php app/Actions/Fortify/ResetUserPassword.php
+use App\Actions\Fortify\PasswordValidationRules;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
+
+class ResetUserPassword
+{
+    use PasswordValidationRules;
+
+    public function reset($user, array $input)
+    {
+        Validator::make($input, [
+            'password' => $this->passwordRules(),
+        ])->validate();
+
+        $user->forceFill([
+            'password' => Hash::make($input['password']),
+        ])->save();
+    }
+}
+```
+
+<Note>
+LDAP users cannot reset their passwords through the application as their passwords are managed by Active Directory.
+</Note>
+
+## Session Management
+
+Sessions are stored in the database for better control and security:
+
+```bash .env
+SESSION_DRIVER=database
+SESSION_LIFETIME=120
+```
+
+The `sessions` table tracks:
+- User ID
+- IP address
+- User agent
+- Last activity timestamp
+- Session payload
+
+## Authentication Middleware
+
+Protected routes use multiple middleware:
+
+```php
+Route::middleware([
+    'auth:sanctum',              // Sanctum authentication
+    config('jetstream.auth_session'),  // Jetstream session
+    'verified'                   // Email verification
+])->group(function () {
+    // Protected routes
+});
+```
+
+## User Types
+
+The system supports different user types defined in the `users` table:
+
+```php
+enum('type', ['customer', 'designer', 'seller'])->nullable()
+```
+
+These types can be used to:
+- Customize dashboard views
+- Control feature access
+- Filter users in administration
+
+## Security Features
+
+### Password Hashing
+
+All passwords are hashed using bcrypt:
+
+```php
+'password' => bcrypt($request->password)
+```
+
+### CSRF Protection
+
+All forms include CSRF tokens automatically via Inertia.js and Laravel's middleware.
+
+### Rate Limiting
+
+Authentication endpoints are rate-limited to prevent brute force attacks (configured in `app/Http/Kernel.php`).
+
+### Secure Cookies
+
+Session cookies are HTTP-only and secure when using HTTPS.
+
+## Logout
+
+Users can logout from:
+- Main navigation menu
+- Profile dropdown
+- Session management page (logout all other devices)
+
+## Next Steps
+
+- [Configure LDAP integration](/configuration/ldap)
+- [Set up user management](/features/user-management)
+- [Configure role-based permissions](/features/role-permissions)

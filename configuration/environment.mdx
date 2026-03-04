@@ -1,0 +1,375 @@
+---
+title: Environment Configuration
+description: Configure environment variables, application settings, mail, cache, and more in GB App
+---
+
+## Overview
+
+GB App uses Laravel's environment configuration system via the `.env` file. All configuration options are defined in `.env.example` and should be copied to `.env` for your environment.
+
+## Creating Your Environment File
+
+```bash
+cp .env.example .env
+```
+
+After modifying `.env`, always clear the configuration cache:
+
+```bash
+docker compose exec app php artisan optimize
+```
+
+## Application Settings
+
+### Basic Configuration
+
+```bash .env.example
+APP_NAME="Sla Bi"
+APP_ENV=local
+APP_KEY=base64:6732uguG7hCxcoKZY8BPoYV19mzt6mEFR66PB77k29c=
+APP_DEBUG=true
+APP_URL=http://localhost
+```
+
+- **APP_NAME**: Application display name (shown in UI and emails)
+- **APP_ENV**: Environment (`local`, `staging`, `production`)
+- **APP_KEY**: Encryption key (generate with `php artisan key:generate`)
+- **APP_DEBUG**: Enable/disable debug mode (set to `false` in production)
+- **APP_URL**: Base URL of your application
+
+<Warning>
+Never set `APP_DEBUG=true` in production as it exposes sensitive information.
+</Warning>
+
+## Logging
+
+```bash .env.example
+LOG_CHANNEL=stack
+LOG_DEPRECATIONS_CHANNEL=null
+LOG_LEVEL=debug
+```
+
+- **LOG_CHANNEL**: Logging channel (`stack`, `single`, `daily`, `stderr`)
+- **LOG_DEPRECATIONS_CHANNEL**: Channel for deprecation warnings
+- **LOG_LEVEL**: Minimum log level (`debug`, `info`, `notice`, `warning`, `error`, `critical`, `alert`, `emergency`)
+
+### Production Logging
+
+For production, use:
+
+```bash
+LOG_CHANNEL=daily
+LOG_LEVEL=warning
+```
+
+## Database Configuration
+
+### Primary Database (MySQL)
+
+```bash .env.example
+DB_CONNECTION=mysql
+DB_HOST=db
+DB_PORT=3306
+DB_DATABASE=GBapp
+DB_USERNAME=root
+DB_PASSWORD=passwordr
+```
+
+- **DB_CONNECTION**: Database driver (`mysql`, `sqlsrv`)
+- **DB_HOST**: Database server hostname (use `db` for Docker container)
+- **DB_PORT**: Database port (3306 for MySQL, 1433 for SQL Server)
+- **DB_DATABASE**: Database name
+- **DB_USERNAME**: Database user
+- **DB_PASSWORD**: Database password
+
+<Info>
+When using the Docker setup, `DB_HOST=db` references the database container defined in `docker-compose.yml`.
+</Info>
+
+### Secondary Database (SQL Server - Optional)
+
+GB App supports additional SQL Server connections:
+
+```bash .env.example
+#SSF_CONNECTION=ssf
+#SSF_HOST=10.10.10.251
+#SSF_PORT=1433
+#SSF_DATABASE=ssf_genericos
+#SSF_USERNAME=pcadmin
+#SSF_PASSWORD=password
+```
+
+Uncomment and configure if you need to connect to external SQL Server databases.
+
+## Broadcasting, Cache, and Queue
+
+```bash .env.example
+BROADCAST_DRIVER=log
+CACHE_DRIVER=file
+FILESYSTEM_DISK=local
+QUEUE_CONNECTION=sync
+SESSION_DRIVER=database
+SESSION_LIFETIME=120
+```
+
+### Session Configuration
+
+- **SESSION_DRIVER**: Where to store sessions (`file`, `database`, `redis`)
+- **SESSION_LIFETIME**: Session lifetime in minutes (120 = 2 hours)
+
+<Note>
+GB App uses `database` for session storage to enable better session management and tracking.
+</Note>
+
+### Cache Configuration
+
+- **CACHE_DRIVER**: Cache backend (`file`, `redis`, `memcached`, `array`)
+
+For production with multiple servers, use Redis:
+
+```bash
+CACHE_DRIVER=redis
+```
+
+### Queue Configuration
+
+- **QUEUE_CONNECTION**: Queue backend (`sync`, `database`, `redis`, `sqs`)
+
+For production with asynchronous jobs:
+
+```bash
+QUEUE_CONNECTION=database
+```
+
+## Mail Configuration
+
+```bash .env.example
+MAIL_MAILER=smtp
+MAIL_HOST=mailpit
+MAIL_PORT=1025
+MAIL_USERNAME=null
+MAIL_PASSWORD=null
+MAIL_ENCRYPTION=null
+MAIL_FROM_ADDRESS="hello@example.com"
+MAIL_FROM_NAME="${APP_NAME}"
+```
+
+### Development Mail (Mailpit)
+
+The default configuration uses Mailpit for development (catches all emails).
+
+### Production Mail (SMTP)
+
+For production, configure your SMTP server:
+
+```bash
+MAIL_MAILER=smtp
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=your-email@gmail.com
+MAIL_PASSWORD=your-app-password
+MAIL_ENCRYPTION=tls
+MAIL_FROM_ADDRESS="noreply@yourdomain.com"
+MAIL_FROM_NAME="GB App"
+```
+
+<Warning>
+For Gmail, use an App Password instead of your regular password. Enable 2FA and generate an app-specific password.
+</Warning>
+
+## Redis Configuration
+
+```bash .env.example
+REDIS_HOST=127.0.0.1
+REDIS_PASSWORD=null
+REDIS_PORT=6379
+```
+
+Redis is optional but recommended for:
+- Caching in production
+- Session storage with multiple servers
+- Queue backend
+- Broadcasting
+
+## Memcached
+
+```bash .env.example
+MEMCACHED_HOST=127.0.0.1
+```
+
+Alternative to Redis for caching.
+
+## AWS Configuration
+
+If using AWS services (S3, SES, etc.):
+
+```bash .env.example
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_DEFAULT_REGION=us-east-1
+AWS_BUCKET=
+AWS_USE_PATH_STYLE_ENDPOINT=false
+```
+
+## Pusher (Real-time Broadcasting)
+
+```bash .env.example
+PUSHER_APP_ID=
+PUSHER_APP_KEY=
+PUSHER_APP_SECRET=
+PUSHER_HOST=
+PUSHER_PORT=443
+PUSHER_SCHEME=https
+PUSHER_APP_CLUSTER=mt1
+
+VITE_PUSHER_APP_KEY="${PUSHER_APP_KEY}"
+VITE_PUSHER_HOST="${PUSHER_HOST}"
+VITE_PUSHER_PORT="${PUSHER_PORT}"
+VITE_PUSHER_SCHEME="${PUSHER_SCHEME}"
+VITE_PUSHER_APP_CLUSTER="${PUSHER_APP_CLUSTER}"
+```
+
+Configure if you need real-time features using Pusher.
+
+## Power BI Configuration
+
+```bash .env.example
+#POWERBI_USER_ID=eca1a0c1-cacb-4469-b9d8-d1d00279c50d
+#POWERBI_GRANT_TYPE=password
+#POWERBI_CLIENT_SECRET=ehq8Q~_LdNUMks20ug9q1IH~3z2Rg0ga41baObah
+#POWERBI_CLIENT_ID=41571832-145a-432c-85d3-0438e4eb1e26
+#POWERBI_RESOURCE=https://analysis.windows.net/powerbi/api
+#POWERBI_USERNAME=powerbi@labgenericosdebelleza.com
+#POWERBI_PASSWORD=U2rXmqBapSG0nSP
+```
+
+See [Power BI API Configuration](/configuration/power-bi-api) for detailed setup.
+
+## LDAP Configuration
+
+```bash .env.example
+LDAP_LOGGING=true
+LDAP_CONNECTION=default
+LDAP_HOST=
+LDAP_USERNAME=
+LDAP_PASSWORD=
+LDAP_PORT=389
+LDAP_BASE_DN=
+LDAP_TIMEOUT=5
+LDAP_SSL=false
+LDAP_TLS=false
+
+# User search base (adjust for your AD structure)
+LDAP_USER_SEARCH_BASE=
+```
+
+See [LDAP Configuration](/configuration/ldap) for detailed setup.
+
+## Environment-Specific Configuration
+
+### Local Development
+
+```bash
+APP_ENV=local
+APP_DEBUG=true
+LOG_LEVEL=debug
+DB_HOST=db
+MAIL_HOST=mailpit
+```
+
+### Staging
+
+```bash
+APP_ENV=staging
+APP_DEBUG=true
+LOG_LEVEL=info
+LOG_CHANNEL=daily
+DB_HOST=staging-db-server
+MAIL_HOST=smtp.yourdomain.com
+```
+
+### Production
+
+```bash
+APP_ENV=production
+APP_DEBUG=false
+LOG_LEVEL=warning
+LOG_CHANNEL=daily
+CACHE_DRIVER=redis
+SESSION_DRIVER=redis
+QUEUE_CONNECTION=redis
+DB_HOST=production-db-server
+MAIL_HOST=smtp.yourdomain.com
+```
+
+## Configuration Files
+
+Environment variables map to configuration files in `config/`:
+
+- `config/app.php` - Application settings
+- `config/database.php` - Database connections
+- `config/mail.php` - Mail configuration
+- `config/cache.php` - Cache settings
+- `config/session.php` - Session configuration
+- `config/power-bi.php` - Power BI API settings
+- `config/ldap.php` - LDAP configuration
+
+## Clearing Configuration Cache
+
+After modifying `.env`, always clear the cache:
+
+```bash
+docker compose exec app php artisan optimize
+```
+
+This runs:
+- `config:clear` - Clear configuration cache
+- `route:clear` - Clear route cache
+- `view:clear` - Clear view cache
+- `config:cache` - Cache configuration
+- `route:cache` - Cache routes
+
+## Security Best Practices
+
+<Steps>
+
+<Step title="Never Commit .env">
+The `.env` file should never be committed to version control:
+```bash
+echo ".env" >> .gitignore
+```
+</Step>
+
+<Step title="Generate Unique APP_KEY">
+```bash
+docker compose exec app php artisan key:generate
+```
+</Step>
+
+<Step title="Use Strong Passwords">
+Use strong, unique passwords for:
+- Database users
+- LDAP bind accounts
+- Power BI service accounts
+- Email accounts
+</Step>
+
+<Step title="Restrict File Permissions">
+```bash
+chmod 600 .env
+```
+</Step>
+
+<Step title="Disable Debug in Production">
+```bash
+APP_DEBUG=false
+```
+</Step>
+
+</Steps>
+
+## Next Steps
+
+- [Configure database connections](/configuration/database)
+- [Set up Power BI API](/configuration/power-bi-api)
+- [Configure LDAP integration](/configuration/ldap)

@@ -1,0 +1,384 @@
+---
+title: 'Roles & Permissions'
+description: 'Role CRUD operations and permission management using Spatie'
+---
+
+## Roles & Permissions Overview
+
+The GB App uses **Spatie Laravel Permission** for role-based access control (RBAC). Roles can have multiple permissions, and users can have multiple roles.
+
+## List Roles
+
+Retrieve all roles with their associated permissions.
+
+```bash
+GET /roles
+```
+
+### Authentication & Permissions
+
+<ParamField header="Authorization" type="string" required>
+  Valid session or Sanctum token
+</ParamField>
+
+Requires one of:
+- `super-admin` role
+- `role.index` permission
+- `role.create` permission
+- `role.update` permission
+- `role.destroy` permission
+
+### Response
+
+Returns Inertia view with:
+
+<ResponseField name="roles" type="array">
+  Array of roles with permissions relationship
+</ResponseField>
+
+<ResponseField name="permissions" type="array">
+  All available permissions in the system
+</ResponseField>
+
+### Role Object Structure
+
+<ResponseField name="id" type="integer">
+  Role ID
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Role name
+</ResponseField>
+
+<ResponseField name="guard_name" type="string">
+  Guard name (typically "sanctum")
+</ResponseField>
+
+<ResponseField name="permissions" type="array">
+  Array of permission objects assigned to this role
+</ResponseField>
+
+<ResponseField name="created_at" type="datetime">
+  Creation timestamp
+</ResponseField>
+
+<ResponseField name="updated_at" type="datetime">
+  Last update timestamp
+</ResponseField>
+
+### Permission Object Structure
+
+<ResponseField name="id" type="integer">
+  Permission ID
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Permission name (e.g., "user.create", "report.edit")
+</ResponseField>
+
+<ResponseField name="guard_name" type="string">
+  Guard name
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET https://your-domain.com/roles \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+### Example Response
+
+```json
+{
+  "roles": [
+    {
+      "id": 1,
+      "name": "super-admin",
+      "guard_name": "sanctum",
+      "permissions": [
+        {
+          "id": 1,
+          "name": "user.index",
+          "guard_name": "sanctum"
+        },
+        {
+          "id": 2,
+          "name": "user.create",
+          "guard_name": "sanctum"
+        }
+      ],
+      "created_at": "2026-01-10 09:00:00",
+      "updated_at": "2026-01-10 09:00:00"
+    },
+    {
+      "id": 2,
+      "name": "asesor",
+      "guard_name": "sanctum",
+      "permissions": [
+        {
+          "id": 15,
+          "name": "report.view",
+          "guard_name": "sanctum"
+        },
+        {
+          "id": 20,
+          "name": "rutas-tecnicas.crear",
+          "guard_name": "sanctum"
+        }
+      ],
+      "created_at": "2026-01-10 09:05:00",
+      "updated_at": "2026-01-15 14:20:00"
+    }
+  ],
+  "permissions": [
+    { "id": 1, "name": "user.index", "guard_name": "sanctum" },
+    { "id": 2, "name": "user.create", "guard_name": "sanctum" },
+    { "id": 3, "name": "user.update", "guard_name": "sanctum" },
+    { "id": 4, "name": "user.destroy", "guard_name": "sanctum" },
+    { "id": 5, "name": "role.index", "guard_name": "sanctum" },
+    { "id": 6, "name": "role.create", "guard_name": "sanctum" }
+  ]
+}
+```
+
+## Create Role
+
+Create a new role with assigned permissions.
+
+```bash
+POST /roles
+```
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Unique role name
+</ParamField>
+
+<ParamField body="permissions" type="array" required>
+  Array of permission names to assign
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/roles \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Sales Manager",
+    "permissions": [
+      "report.view",
+      "lista-precios.ver",
+      "rutas-tecnicas.ver",
+      "rutas-tecnicas.crear"
+    ]
+  }'
+```
+
+### Response
+
+Returns array of all roles with permissions (200 status).
+
+```json
+[
+  {
+    "id": 1,
+    "name": "super-admin",
+    "guard_name": "sanctum",
+    "permissions": [...]
+  },
+  {
+    "id": 3,
+    "name": "Sales Manager",
+    "guard_name": "sanctum",
+    "permissions": [
+      { "id": 15, "name": "report.view" },
+      { "id": 25, "name": "lista-precios.ver" },
+      { "id": 30, "name": "rutas-tecnicas.ver" },
+      { "id": 31, "name": "rutas-tecnicas.crear" }
+    ],
+    "created_at": "2026-03-04 10:30:00",
+    "updated_at": "2026-03-04 10:30:00"
+  }
+]
+```
+
+## Update Role
+
+Update an existing role and its permissions.
+
+```bash
+PUT /roles/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  Role ID to update
+</ParamField>
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Updated role name
+</ParamField>
+
+<ParamField body="permissions" type="array" required>
+  Updated array of permission names
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X PUT https://your-domain.com/roles/3 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Sales Manager",
+    "permissions": [
+      "report.view",
+      "report.create",
+      "lista-precios.ver",
+      "rutas-tecnicas.ver",
+      "rutas-tecnicas.crear",
+      "rutas-tecnicas.editar"
+    ]
+  }'
+```
+
+### Response
+
+Returns array of all roles with updates applied (200 status).
+
+## Delete Role
+
+Delete a role from the system.
+
+```bash
+DELETE /roles/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  Role ID to delete
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X DELETE https://your-domain.com/roles/3 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+### Response
+
+Returns array of remaining roles (200 status).
+
+<Warning>
+Deleting a role will remove it from all users who have that role assigned.
+</Warning>
+
+## Common Permissions
+
+Here are some common permissions in the GB App:
+
+### User Management
+- `user.index` - View users list
+- `user.create` - Create new users
+- `user.update` - Update users
+- `user.destroy` - Delete users
+- `user.show` - View user details
+
+### Role Management
+- `role.index` - View roles list
+- `role.create` - Create new roles
+- `role.update` - Update roles
+- `role.destroy` - Delete roles
+
+### Report Management
+- `report.create` - Create/edit reports
+- `report.edit` - Edit reports
+- `report.destroy` - Delete reports
+- `report.view` - View reports
+- `import-report` - Import reports from Power BI
+
+### Report Filters
+- `report.filter.index` - View filters
+- `report.filter.create` - Create filters
+- `report.filter.update` - Update filters
+- `report.filter.destroy` - Delete filters
+
+### Business Modules
+- `ver-lista-precios` - View price lists
+- `rutas-tecnicas.ver` - View technical routes
+- `rutas-tecnicas.crear` - Create technical routes
+- `rutas-tecnicas.editar` - Edit technical routes
+- `rutas-tecnicas.eliminar` - Delete technical routes
+- `rutas-tecnicas.ver-todos` - View all technical routes (supervisor)
+
+### Special Permissions
+- `update-reports` - Update user report assignments
+- `update-filters` - Update user filter assignments
+- `set-default` - Set default report view
+
+## Super Admin Role
+
+The `super-admin` role bypasses all permission checks. Users with this role have unrestricted access to all features.
+
+## Permission Middleware
+
+Routes use the `role_or_permission` middleware:
+
+```php
+->middleware('role_or_permission:super-admin|user.create|user.update')
+```
+
+This allows access if the user has:
+- The `super-admin` role, OR
+- Any of the listed permissions
+
+## Error Responses
+
+### 500 Internal Server Error
+
+```json
+{
+  "message": "Error details from exception"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "message": "This action is unauthorized."
+}
+```
+
+## Implementation Notes
+
+**Source:** `app/Http/Controllers/RoleController.php`
+
+### Database Transactions
+
+All role operations use database transactions to ensure data integrity:
+
+```php
+DB::beginTransaction();
+try {
+    // Role operations
+    DB::commit();
+} catch (\Exception $e) {
+    DB::rollBack();
+    return response()->json($e->getMessage(), 500);
+}
+```
+
+### Permission Sync
+
+Permissions are synced using Spatie's `syncPermissions()` method, which replaces all existing permissions with the new set.

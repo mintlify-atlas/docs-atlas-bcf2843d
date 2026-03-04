@@ -1,0 +1,486 @@
+---
+title: Role Management
+description: Create and manage user roles with granular permission assignment using Spatie Laravel Permission
+---
+
+## Overview
+
+The Role Management module provides a centralized interface for creating roles and assigning permissions. Built on Spatie Laravel Permission package, it offers flexible role-based access control (RBAC) for the entire application.
+
+**Controller:** `RoleController` (app/Http/Controllers/RoleController.php:13)  
+**Package:** `spatie/laravel-permission`  
+**Models:**
+- `Spatie\Permission\Models\Role`
+- `Spatie\Permission\Models\Permission`
+
+**Vue Component:** `resources/js/Pages/Roles.vue`
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Role CRUD" icon="user-tag">
+    Create, update, and delete roles with validation
+  </Card>
+  <Card title="Permission Assignment" icon="key">
+    Assign multiple permissions to each role
+  </Card>
+  <Card title="Sync Permissions" icon="rotate">
+    Easily update role permissions without manual detaching
+  </Card>
+  <Card title="Transaction Safety" icon="shield-check">
+    All operations wrapped in database transactions
+  </Card>
+</CardGroup>
+
+## Spatie Laravel Permission
+
+This module leverages the Spatie Laravel Permission package which provides:
+
+- Role-based access control (RBAC)
+- Direct permission assignment to users
+- Middleware for route protection
+- Blade directives for view-level checks
+- Cache optimization for permission queries
+
+<Info>
+**Documentation:** [Spatie Laravel Permission](https://spatie.be/docs/laravel-permission/)
+</Info>
+
+## Data Structure
+
+### Role Model
+
+Roles are stored in the `roles` table:
+
+- `id`: Primary key
+- `name`: Unique role name
+- `guard_name`: Authentication guard (default: 'sanctum')
+- `created_at`: Timestamp
+- `updated_at`: Timestamp
+
+### Permission Model
+
+Permissions are stored in the `permissions` table:
+
+- `id`: Primary key
+- `name`: Unique permission name
+- `guard_name`: Authentication guard
+- `created_at`: Timestamp
+- `updated_at`: Timestamp
+
+### Role-Permission Relationship
+
+Many-to-many relationship via `role_has_permissions` table:
+
+- `permission_id`: Foreign key to permissions
+- `role_id`: Foreign key to roles
+
+## Permissions
+
+Role management routes require permission-based access (routes/web.php:47-63):
+
+- `role.index`: View roles list and manage roles
+- `role.create`: Create new roles
+- `role.update`: Edit existing roles
+- `role.destroy`: Delete roles
+
+**Special Access:** Users with `super-admin` role have unrestricted access.
+
+**Middleware:** `role_or_permission:super-admin|role.index|role.create|role.update|role.destroy`
+
+## API Endpoints
+
+### List Roles
+
+```http
+GET /roles
+```
+
+Returns all roles with their assigned permissions.
+
+**Response Data:**
+- `roles`: Collection of roles with eager-loaded permissions
+- `permissions`: Collection of all available permissions
+
+**Example Response:**
+```json
+{
+  "roles": [
+    {
+      "id": 1,
+      "name": "Asesor",
+      "guard_name": "sanctum",
+      "permissions": [
+        {"id": 1, "name": "rutas-tecnicas.ver"},
+        {"id": 2, "name": "rutas-tecnicas.crear"}
+      ]
+    }
+  ],
+  "permissions": [
+    {"id": 1, "name": "rutas-tecnicas.ver"},
+    {"id": 2, "name": "rutas-tecnicas.crear"},
+    {"id": 3, "name": "user.index"}
+  ]
+}
+```
+
+**Implementation:** RoleController.php:18-27
+
+### Create Role
+
+```http
+POST /roles
+```
+
+**Request Body:**
+```json
+{
+  "name": "Asesor",
+  "permissions": [1, 2, 5, 7]
+}
+```
+
+**Process:**
+1. Create new role with provided name
+2. Sync permissions (adds new, removes unspecified)
+3. Commit transaction
+4. Return updated roles list
+
+**Response:** JSON array of all roles with permissions (200) or error message (500)
+
+**Implementation:** RoleController.php:32-49
+
+### Update Role
+
+```http
+PUT /roles/{id}
+```
+
+**Request Body:**
+```json
+{
+  "name": "Asesor Senior",
+  "permissions": [1, 2, 3, 5, 7, 9]
+}
+```
+
+**Process:**
+1. Find role by ID
+2. Update role name
+3. Sync permissions (using `syncPermissions()` method)
+4. Commit transaction
+5. Return updated roles list
+
+**Response:** JSON array of all roles with permissions (200) or error message (500)
+
+**Implementation:** RoleController.php:54-73
+
+### Delete Role
+
+```http
+DELETE /roles/{id}
+```
+
+**Process:**
+1. Delete role by ID
+2. Cascade removes permission associations
+3. Commit transaction
+4. Return remaining roles
+
+**Response:** JSON array of remaining roles (200) or error message (500)
+
+**Implementation:** RoleController.php:78-93
+
+<Note>
+**Warning:** Deleting a role removes it from all users who were assigned that role. Ensure users are reassigned to appropriate roles before deletion.
+</Note>
+
+## Permission Naming Convention
+
+Permissions follow a structured naming pattern:
+
+```
+{module}.{action}
+```
+
+### Examples
+
+**User Management:**
+- `user.index` - View users list
+- `user.create` - Create new users
+- `user.update` - Edit users
+- `user.destroy` - Delete users
+- `user.show` - View user details
+
+**Role Management:**
+- `role.index` - View roles
+- `role.create` - Create roles
+- `role.update` - Edit roles
+- `role.destroy` - Delete roles
+
+**Report Management:**
+- `report.create` - Create reports
+- `report.edit` - Edit reports
+- `report.destroy` - Delete reports
+- `report.filter.index` - View filters
+- `report.filter.create` - Create filters
+
+**Price Lists:**
+- `ver-lista-precios` - View price lists
+
+**Technical Routes:**
+- `rutas-tecnicas.ver` - View routes
+- `rutas-tecnicas.crear` - Create routes
+- `rutas-tecnicas.editar` - Edit routes
+- `rutas-tecnicas.eliminar` - Delete routes
+- `rutas-tecnicas.ver-todos` - View all routes (supervisor)
+
+**Special Permissions:**
+- `super-admin` - Full system access
+- `update-reports` - Update user report assignments
+- `update-filters` - Update user report filters
+- `set-default` - Set dashboard defaults
+- `import-report` - Import Power BI reports
+
+## Common Roles
+
+Typical roles configured in the system:
+
+### Super Admin
+**Permissions:** All  
+**Description:** Full system access, bypasses all permission checks
+
+### Gerencia (Management)
+**Permissions:**
+- All user management
+- All report management
+- View all technical routes
+- Role and permission management
+
+### AsistenteVentas (Sales Assistant)
+**Permissions:**
+- View/create/edit technical routes
+- View all routes
+- Report viewing
+- User management (limited)
+
+### Asesor (Advisor)
+**Permissions:**
+- Create/view/edit own technical routes
+- View price lists
+- View assigned reports
+
+### Tecnico (Technician)
+**Permissions:**
+- View technical routes assigned to them
+- View price lists
+- Limited report access
+
+### Vendedor (Salesperson)
+**Permissions:**
+- View price lists
+- View assigned reports
+- Create design requests
+
+## Permission Checks in Code
+
+### Controller Level
+
+Using middleware in routes:
+
+```php
+Route::get('/users', [UserController::class, 'index'])
+    ->middleware('role_or_permission:super-admin|user.index');
+```
+
+### User Model
+
+Using Spatie trait methods:
+
+```php
+// Check single permission
+if ($user->can('user.create')) {
+    // Allow action
+}
+
+// Check role
+if ($user->hasRole('super-admin')) {
+    // Allow action
+}
+
+// Check any permission
+if ($user->hasAnyPermission(['user.create', 'user.update'])) {
+    // Allow action
+}
+```
+
+### Blade Views
+
+Using directives:
+
+```blade
+@can('user.create')
+    <button>Create User</button>
+@endcan
+
+@role('super-admin')
+    <a href="/admin">Admin Panel</a>
+@endrole
+```
+
+### Vue Components
+
+Access via user prop:
+
+```javascript
+if (props.user.permission_names.includes('user.create')) {
+    // Show create button
+}
+
+if (props.user.role_names.includes('super-admin')) {
+    // Show admin features
+}
+```
+
+## Transaction Safety
+
+All role operations use database transactions:
+
+```php
+DB::beginTransaction();
+try {
+    // Create/Update/Delete operations
+    DB::commit();
+    return response()->json($roles, 200);
+} catch (\Exception $e) {
+    DB::rollBack();
+    return response()->json($e->getMessage(), 500);
+}
+```
+
+**Benefits:**
+- Ensures data consistency
+- Prevents partial updates
+- Automatically rolls back on errors
+
+**Implementation:** RoleController.php:34-48, 56-72, 80-92
+
+## User Interface
+
+The roles management interface provides:
+
+### Roles Table
+- **Columns:** Role Name, Permission Count, Actions
+- **Actions:** Edit, Delete
+- **Create Button:** Opens modal for new role
+
+### Role Form (Create/Edit)
+- **Role Name:** Text input (required, unique)
+- **Permissions:** Multi-select checkbox list
+- **Save Button:** Submits form
+- **Cancel Button:** Closes modal
+
+### Permission List
+Grouped by module with expandable sections:
+- User Management
+- Role Management
+- Report Management
+- Technical Routes
+- Design Requests
+- Price Lists
+- Special Permissions
+
+## Cache Considerations
+
+Spatie Laravel Permission caches role and permission data for performance:
+
+### Clear Cache After Changes
+
+```php
+use Spatie\Permission\PermissionRegistrar;
+
+app()->make(PermissionRegistrar::class)->forgetCachedPermissions();
+```
+
+### Cache Keys
+
+The package caches:
+- User permissions
+- User roles
+- Role permissions
+
+**Cache Lifetime:** Configured in `config/permission.php`
+
+<Info>
+Cache is automatically cleared when roles or permissions are updated through the RoleController.
+</Info>
+
+## Seeding Permissions
+
+Permissions should be seeded during initial setup:
+
+```php
+// database/seeders/PermissionSeeder.php
+use Spatie\Permission\Models\Permission;
+
+Permission::create(['name' => 'user.index']);
+Permission::create(['name' => 'user.create']);
+Permission::create(['name' => 'user.update']);
+Permission::create(['name' => 'user.destroy']);
+// ... more permissions
+```
+
+<Note>
+Permissions are typically created once during initial setup and rarely modified. Roles can be freely created and updated through the UI.
+</Note>
+
+## Usage Workflow
+
+<Steps>
+  <Step title="Define Permissions">
+    Identify all actions in your application and create corresponding permissions via seeder.
+  </Step>
+  <Step title="Create Role">
+    Navigate to Roles page and click "New Role". Enter role name (e.g., "Sales Manager").
+  </Step>
+  <Step title="Assign Permissions">
+    Select all permissions that users with this role should have. Use logical groupings.
+  </Step>
+  <Step title="Save Role">
+    Submit the form. Role is created with selected permissions.
+  </Step>
+  <Step title="Assign to Users">
+    Go to User Management and assign the new role to appropriate users.
+  </Step>
+  <Step title="Test Access">
+    Log in as a user with the role and verify they can access permitted features.
+  </Step>
+</Steps>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Least Privilege" icon="lock">
+    Assign minimum permissions required for users to perform their job functions.
+  </Card>
+  <Card title="Descriptive Names" icon="tag">
+    Use clear, consistent role names that reflect job functions (e.g., "Sales Advisor", "Technical Support").
+  </Card>
+  <Card title="Regular Audits" icon="magnifying-glass">
+    Periodically review role permissions and remove unnecessary access.
+  </Card>
+  <Card title="Document Roles" icon="book">
+    Maintain documentation of what each role represents and their intended use cases.
+  </Card>
+</CardGroup>
+
+## Related Modules
+
+<CardGroup cols={2}>
+  <Card title="Users" icon="users">
+    Assign roles to users and manage role memberships
+  </Card>
+  <Card title="Route Middleware" icon="shield">
+    Protect routes using role and permission middleware
+  </Card>
+</CardGroup>

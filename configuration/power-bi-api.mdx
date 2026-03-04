@@ -1,0 +1,413 @@
+---
+title: Power BI API Configuration
+description: Set up Power BI API credentials, Azure AD app registration, and token configuration
+---
+
+## Overview
+
+GB App integrates with Microsoft Power BI through the Power BI REST API. To enable this integration, you need to:
+
+1. Register an Azure AD application
+2. Configure Power BI API permissions
+3. Set environment variables
+4. Test the connection
+
+## Azure AD App Registration
+
+<Steps>
+
+<Step title="Sign in to Azure Portal">
+Navigate to [Azure Portal](https://portal.azure.com) and sign in with your organizational account.
+</Step>
+
+<Step title="Register New Application">
+1. Go to **Azure Active Directory** > **App registrations**
+2. Click **New registration**
+3. Enter application details:
+   - **Name**: GB App Power BI Integration
+   - **Supported account types**: Accounts in this organizational directory only
+   - **Redirect URI**: Not required for service principal authentication
+4. Click **Register**
+</Step>
+
+<Step title="Note Application IDs">
+From the app overview page, copy:
+- **Application (client) ID** - This is your `POWERBI_CLIENT_ID`
+- **Directory (tenant) ID** - This is your tenant ID
+</Step>
+
+<Step title="Create Client Secret">
+1. Go to **Certificates & secrets**
+2. Click **New client secret**
+3. Add description: "GB App Integration"
+4. Select expiration period (recommended: 24 months)
+5. Click **Add**
+6. **Copy the secret value immediately** - This is your `POWERBI_CLIENT_SECRET`
+
+<Warning>
+The secret value is only shown once. Store it securely.
+</Warning>
+</Step>
+
+<Step title="Configure API Permissions">
+1. Go to **API permissions**
+2. Click **Add a permission**
+3. Select **Power BI Service**
+4. Choose **Delegated permissions** or **Application permissions**
+5. Add these permissions:
+   - `Report.Read.All`
+   - `Dataset.Read.All`
+   - `Workspace.Read.All`
+6. Click **Add permissions**
+7. Click **Grant admin consent** (requires admin privileges)
+</Step>
+
+</Steps>
+
+## Power BI Service Principal Setup
+
+<Steps>
+
+<Step title="Enable Service Principal in Power BI Admin">
+1. Go to [Power BI Admin Portal](https://app.powerbi.com/admin-portal)
+2. Navigate to **Tenant settings**
+3. Find **Developer settings** > **Allow service principals to use Power BI APIs**
+4. Enable for your organization or specific security groups
+5. Save changes
+</Step>
+
+<Step title="Add Service Principal to Workspaces">
+For each workspace you want to access:
+1. Open the workspace in Power BI
+2. Click workspace **Settings** > **Access**
+3. Add your Azure AD app as a **Member** or **Admin**
+4. Save
+</Step>
+
+</Steps>
+
+## Authentication Methods
+
+GB App supports two authentication methods:
+
+### Method 1: Resource Owner Password Credentials (ROPC)
+
+Used by default in the codebase:
+
+```php app/Traits/PowerBITrait.php
+protected function getUserAccessToken(): mixed
+{
+    $client = new Client([
+        'base_uri' => "https://login.windows.net/common/oauth2/token",
+    ]);
+
+    $response = $client->request('POST', "https://login.windows.net/common/oauth2/token", [
+        'multipart' => [
+            [
+                'name' => 'grant_type',
+                'contents' => config('power-bi.grant_type'),
+            ],
+            [
+                'name' => 'scope',
+                'contents' => 'openid'
+            ],
+            [
+                'name' => 'resource',
+                'contents' => config('power-bi.resource'),
+            ],
+            [
+                'name' => 'client_secret',
+                'contents' => config('power-bi.client_secret'),
+            ],
+            [
+                'name' => 'client_id',
+                'contents' => config('power-bi.client_id'),
+            ],
+            [
+                'name' => 'username',
+                'contents' => config('power-bi.username'),
+            ],
+            [
+                'name' => 'password',
+                'contents' => config('power-bi.password'),
+            ],
+        ],
+    ]);
+
+    return json_decode($response->getBody()->getContents())->access_token;
+}
+```
+
+### Method 2: Service Principal (Recommended for Production)
+
+For production environments, use service principal authentication:
+
+```php
+protected function getServicePrincipalToken(): string
+{
+    $client = new Client();
+    
+    $response = $client->request('POST', 
+        'https://login.microsoftonline.com/' . config('power-bi.tenant_id') . '/oauth2/v2.0/token',
+        [
+            'form_params' => [
+                'grant_type' => 'client_credentials',
+                'client_id' => config('power-bi.client_id'),
+                'client_secret' => config('power-bi.client_secret'),
+                'scope' => 'https://analysis.windows.net/powerbi/api/.default',
+            ],
+        ]
+    );
+
+    return json_decode($response->getBody()->getContents())->access_token;
+}
+```
+
+## Environment Configuration
+
+### Power BI Config File
+
+```php config/power-bi.php
+return [
+    'user_id' => env('POWERBI_USER_ID'),
+    'grant_type' => env('POWERBI_GRANT_TYPE', 'password'),
+    'client_secret' => env('POWERBI_CLIENT_SECRET'),
+    'client_id' => env('POWERBI_CLIENT_ID'),
+    'resource' => env('POWERBI_RESOURCE', 'https://analysis.windows.net/powerbi/api'),
+    'username' => env('POWERBI_USERNAME'),
+    'password' => env('POWERBI_PASSWORD')
+];
+```
+
+### Environment Variables
+
+Add these to your `.env` file:
+
+```bash .env
+POWERBI_USER_ID=eca1a0c1-cacb-4469-b9d8-d1d00279c50d
+POWERBI_GRANT_TYPE=password
+POWERBI_CLIENT_SECRET=ehq8Q~_LdNUMks20ug9q1IH~3z2Rg0ga41baObah
+POWERBI_CLIENT_ID=41571832-145a-432c-85d3-0438e4eb1e26
+POWERBI_RESOURCE=https://analysis.windows.net/powerbi/api
+POWERBI_USERNAME=powerbi@yourdomain.com
+POWERBI_PASSWORD=YourSecurePassword
+```
+
+<Warning>
+The example values above are for demonstration only. Use your actual Azure AD credentials.
+</Warning>
+
+### Configuration Parameters
+
+- **POWERBI_USER_ID**: Optional user ID for tracking
+- **POWERBI_GRANT_TYPE**: OAuth grant type (`password` or `client_credentials`)
+- **POWERBI_CLIENT_SECRET**: Azure AD app client secret
+- **POWERBI_CLIENT_ID**: Azure AD app application ID
+- **POWERBI_RESOURCE**: Power BI API resource URL
+- **POWERBI_USERNAME**: Power BI Pro user account
+- **POWERBI_PASSWORD**: User password
+
+## Testing the Connection
+
+After configuration, clear cache and test:
+
+```bash
+docker compose exec app php artisan optimize
+```
+
+### Test in Tinker
+
+```bash
+docker compose exec app php artisan tinker
+```
+
+Run:
+
+```php
+$trait = new class {
+    use \App\Traits\PowerBITrait;
+    
+    public function test() {
+        try {
+            $token = $this->getUserAccessToken();
+            return $token ? 'Success' : 'Failed';
+        } catch (\Exception $e) {
+            return $e->getMessage();
+        }
+    }
+};
+
+$trait->test();
+```
+
+### Test Import Reports
+
+1. Navigate to `/reports/import`
+2. Enter a workspace Group ID
+3. Click "Get Reports"
+4. If successful, you'll see a list of reports from that workspace
+
+## Power BI API Endpoints
+
+GB App uses these Power BI REST API endpoints:
+
+### Authentication
+
+```
+POST https://login.windows.net/common/oauth2/token
+```
+
+Obtains OAuth2 access token.
+
+### Get Reports in Workspace
+
+```
+GET https://api.powerbi.com/v1.0/myorg/groups/{groupId}/reports
+```
+
+Returns all reports in a workspace.
+
+### Generate Embed Token
+
+```
+POST https://api.powerbi.com/v1.0/myorg/groups/{groupId}/reports/{reportId}/GenerateToken
+```
+
+Generates an embed token for report viewing.
+
+Request body:
+```json
+{
+  "accessLevel": "View",
+  "datasetId": "dataset-id-here"
+}
+```
+
+### Embed URL
+
+```
+https://app.powerbi.com/reportEmbed?reportId={reportId}&groupId={groupId}
+```
+
+Used for embedding reports in the frontend.
+
+## Token Management
+
+### Access Token Lifecycle
+
+Access tokens expire after 1 hour. GB App:
+
+1. Generates access token on controller initialization
+2. Uses access token to generate embed tokens
+3. Stores embed tokens in database with expiration
+4. Automatically refreshes expired embed tokens
+
+### Embed Token Storage
+
+```php
+// Token stored in reports table
+$report->token = $token->token;
+$report->expiration_date = $token->expiration;
+$report->save();
+```
+
+### Token Refresh Logic
+
+```php app/Http/Controllers/ReportController.php
+if ($report->token === null || Carbon::now() >= $report->expiration_date) {
+    $token = $this->getReportAccessToken($this->userAccessToken, $report);
+
+    if ($token->status === 200) {
+        $report->token = $token->token;
+        $report->expiration_date = $token->expiration;
+        $report->save();
+    }
+}
+```
+
+## Checking Available Tokens
+
+Power BI has limits on free embed tokens. Check your available tokens:
+
+[Power BI Available Features API](https://learn.microsoft.com/en-us/rest/api/power-bi/available-features/get-available-feature-by-name)
+
+```bash
+curl -X GET \
+  'https://api.powerbi.com/v1.0/myorg/availableFeatures?featureName=Embed' \
+  -H 'Authorization: Bearer YOUR_ACCESS_TOKEN'
+```
+
+## Workspace Group ID
+
+To find your workspace Group ID:
+
+1. Open Power BI workspace in browser
+2. Look at the URL:
+   ```
+   https://app.powerbi.com/groups/12345678-abcd-1234-abcd-123456789abc/...
+   ```
+3. The GUID after `/groups/` is your Group ID
+
+## Security Best Practices
+
+<Steps>
+
+<Step title="Use Service Principal in Production">
+Avoid using user credentials in production. Use service principal authentication with client credentials grant.
+</Step>
+
+<Step title="Rotate Client Secrets Regularly">
+Set expiration dates for client secrets and rotate them before expiry.
+</Step>
+
+<Step title="Limit API Permissions">
+Only grant necessary permissions to the Azure AD app.
+</Step>
+
+<Step title="Secure Environment Variables">
+Never commit `.env` file. Use secret management in production:
+- Azure Key Vault
+- AWS Secrets Manager
+- HashiCorp Vault
+</Step>
+
+<Step title="Use Separate Apps per Environment">
+Create separate Azure AD apps for development, staging, and production.
+</Step>
+
+</Steps>
+
+## Troubleshooting
+
+<Accordion title="401 Unauthorized when calling Power BI API">
+- Verify client ID and secret are correct
+- Check that admin consent was granted for API permissions
+- Ensure Power BI service principal is enabled in tenant settings
+- Verify the user account has Power BI Pro license
+</Accordion>
+
+<Accordion title="403 Forbidden when accessing workspace">
+- Add service principal or user to workspace with Member/Admin role
+- Check workspace settings allow API access
+- Verify workspace is in a Premium capacity (if required)
+</Accordion>
+
+<Accordion title="Token generation fails">
+- Check that `POWERBI_GRANT_TYPE` matches your authentication method
+- Verify username and password are correct (for ROPC)
+- Ensure client secret hasn't expired
+- Check network connectivity to Azure AD
+</Accordion>
+
+<Accordion title="Reports don't load in frontend">
+- Check browser console for errors
+- Verify embed token hasn't expired
+- Ensure Power BI JavaScript library is loaded
+- Check that embedUrl is correctly formatted
+</Accordion>
+
+## Next Steps
+
+- [Import Power BI reports](/features/report-management)
+- [Assign reports to users](/features/user-management)
+- [Configure embed settings](/deployment/production)

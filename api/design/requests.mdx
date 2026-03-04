@@ -1,0 +1,437 @@
+---
+title: 'Design Requests'
+description: 'Design request management API for tracking design tasks and workflows'
+---
+
+## Design Requests Overview
+
+Manage design requests, priorities, states, and associated tasks for tracking design workflows.
+
+## List Design Requests
+
+Retrieve all design requests with related data.
+
+```bash
+GET /design/request
+```
+
+### Authentication
+
+<ParamField header="Authorization" type="string" required>
+  Valid session or Sanctum token
+</ParamField>
+
+### Response
+
+Returns Inertia view with:
+
+<ResponseField name="requests" type="array">
+  All design requests
+</ResponseField>
+
+<ResponseField name="priorities" type="array">
+  Available priority levels
+</ResponseField>
+
+<ResponseField name="time_states" type="array">
+  Time state options
+</ResponseField>
+
+<ResponseField name="states" type="array">
+  Design request states
+</ResponseField>
+
+<ResponseField name="designers" type="array">
+  Users with type='designer'
+</ResponseField>
+
+<ResponseField name="customers" type="array">
+  Customer list grouped by type (local/external)
+</ResponseField>
+
+<ResponseField name="sellers" type="array">
+  Available sellers
+</ResponseField>
+
+## Create Design Request
+
+Create a new design request.
+
+```bash
+POST /design/request
+```
+
+### Request Body
+
+<ParamField body="priority_id" type="integer" required>
+  Priority level ID
+</ParamField>
+
+<ParamField body="designer_id" type="integer" required>
+  Designer user ID
+</ParamField>
+
+<ParamField body="seller_document" type="string" required>
+  Seller document number
+</ParamField>
+
+<ParamField body="customer_id" type="string" required>
+  Customer ID/document
+</ParamField>
+
+<ParamField body="comments" type="string">
+  Design request comments
+</ParamField>
+
+<ParamField body="reception_date" type="date" required>
+  Date request was received
+</ParamField>
+
+<ParamField body="tentative_date" type="date">
+  Tentative completion date
+</ParamField>
+
+<ParamField body="real_date" type="date">
+  Actual completion date
+</ParamField>
+
+<ParamField body="delivery_date" type="date">
+  Delivery date to customer
+</ParamField>
+
+<ParamField body="customer_approved_date" type="date">
+  Date customer approved design
+</ParamField>
+
+<ParamField body="estimated_arrival_sherpa_date" type="date">
+  Estimated arrival date for Sherpa
+</ParamField>
+
+<ParamField body="time_state_id" type="integer" required>
+  Time state ID
+</ParamField>
+
+<ParamField body="state_id" type="integer" required>
+  Design state ID
+</ParamField>
+
+<ParamField body="observations" type="string">
+  Additional observations
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/design/request \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "priority_id": 1,
+    "designer_id": 5,
+    "seller_document": "123456789",
+    "customer_id": "987654321",
+    "comments": "Client needs custom logo design",
+    "reception_date": "2026-03-01",
+    "tentative_date": "2026-03-10",
+    "time_state_id": 1,
+    "state_id": 1,
+    "observations": "High priority client"
+  }'
+```
+
+### Response
+
+Returns array of all design requests including newly created (200 status).
+
+## Get Design Request Details
+
+Retrieve detailed information about a specific design request.
+
+```bash
+GET /design/request/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  Design request ID
+</ParamField>
+
+### Response
+
+Returns Inertia view with:
+
+<ResponseField name="design_request" type="object">
+  Complete design request object
+</ResponseField>
+
+<ResponseField name="priorities" type="array">
+  Available priorities
+</ResponseField>
+
+<ResponseField name="time_states" type="array">
+  Available time states
+</ResponseField>
+
+<ResponseField name="states" type="array">
+  Available states
+</ResponseField>
+
+<ResponseField name="designers" type="array">
+  Designer users
+</ResponseField>
+
+<ResponseField name="customers" type="array">
+  Customer list
+</ResponseField>
+
+<ResponseField name="sellers" type="array">
+  Seller list
+</ResponseField>
+
+## Update Design Request
+
+Update an existing design request.
+
+```bash
+PUT /design/request/{id}
+```
+
+<Note>
+The current implementation only updates the `name` field. This may be expanded in the future.
+</Note>
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  Design request ID
+</ParamField>
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Updated request name
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X PUT https://your-domain.com/design/request/5 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Updated Design Request Name"
+  }'
+```
+
+### Response
+
+Returns array of all design requests with updates (200 status).
+
+## Update Design Request State
+
+Update a specific state property of a design request.
+
+```bash
+POST /design/request/update-state
+```
+
+### Request Body
+
+<ParamField body="id" type="integer" required>
+  Design request ID
+</ParamField>
+
+<ParamField body="property" type="string" required>
+  Property name to update (e.g., 'state_id', 'time_state_id')
+</ParamField>
+
+<ParamField body="state_id" type="integer" required>
+  New state value
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/design/request/update-state \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": 5,
+    "property": "state_id",
+    "state_id": 3
+  }'
+```
+
+### Response
+
+Returns the updated design request object (200 status).
+
+```json
+{
+  "id": 5,
+  "priority_id": 1,
+  "designer_id": 5,
+  "seller_document": "123456789",
+  "customer_id": "987654321",
+  "state_id": 3,
+  "time_state_id": 1,
+  "reception_date": "2026-03-01",
+  "created_at": "2026-03-01 10:00:00",
+  "updated_at": "2026-03-04 11:15:00"
+}
+```
+
+## Delete Design Request
+
+Delete a design request.
+
+```bash
+DELETE /design/request/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  Design request ID to delete
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X DELETE https://your-domain.com/design/request/5 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+### Response
+
+Returns array of remaining design requests (200 status).
+
+## Design Priorities
+
+### List Priorities
+
+```bash
+GET /design/priority
+```
+
+### Create Priority
+
+```bash
+POST /design/priority
+```
+
+### Update Priority
+
+```bash
+PUT /design/priority/{id}
+```
+
+### Delete Priority
+
+```bash
+DELETE /design/priority/{id}
+```
+
+## Design States
+
+### List States
+
+```bash
+GET /design/state
+```
+
+### Create State
+
+```bash
+POST /design/state
+```
+
+### Update State
+
+```bash
+PUT /design/state/{id}
+```
+
+### Delete State
+
+```bash
+DELETE /design/state/{id}
+```
+
+## Design Time States
+
+### List Time States
+
+```bash
+GET /design/time-state
+```
+
+### Create Time State
+
+```bash
+POST /design/time-state
+```
+
+### Update Time State
+
+```bash
+PUT /design/time-state/{id}
+```
+
+### Delete Time State
+
+```bash
+DELETE /design/time-state/{id}
+```
+
+## Design Tasks
+
+### Create Task
+
+```bash
+POST /design/task
+```
+
+### Update Task
+
+```bash
+PUT /design/task/{id}
+```
+
+### Delete Task
+
+```bash
+DELETE /design/task/{request_id}/{id}
+```
+
+<ParamField path="request_id" type="integer" required>
+  Design request ID
+</ParamField>
+
+<ParamField path="id" type="integer" required>
+  Task ID
+</ParamField>
+
+## Error Responses
+
+### 500 Internal Server Error
+
+```json
+{
+  "message": "Error details from exception"
+}
+```
+
+## Implementation Notes
+
+**Source:** `app/Http/Controllers/DesignRequestController.php`
+
+### Customer Data Source
+
+Customers are retrieved from two sources:
+1. **Local**: From `GBapp.dbo.users` where type='customer'
+2. **External**: From external database connection 'ssf' (`un_tercegener` table)
+
+Customers are grouped by type in the response.

@@ -1,0 +1,570 @@
+---
+title: Coding Standards
+description: Code style guidelines and best practices for GB App development
+---
+
+## Overview
+
+GB App follows industry-standard coding conventions for Laravel (PHP) and Vue.js (JavaScript). Consistency in code style makes the codebase maintainable and easier to collaborate on.
+
+## PHP/Laravel Standards
+
+### PSR-12 Compliance
+
+GB App follows [PSR-12: Extended Coding Style](https://www.php-fig.org/psr/psr-12/) for all PHP code.
+
+**Key Rules**:
+- Use 4 spaces for indentation (no tabs)
+- Opening braces for classes and methods on the next line
+- Opening braces for control structures on the same line
+- One statement per line
+
+### Laravel Pint
+
+Use Laravel Pint to automatically format code:
+
+```bash
+# Check code style
+./vendor/bin/pint --test
+
+# Fix code style issues
+./vendor/bin/pint
+```
+
+**Configuration**: `pint.json`
+
+```json
+{
+    "preset": "laravel"
+}
+```
+
+### Naming Conventions
+
+#### Controllers
+
+- Use singular, PascalCase nouns
+- Suffix with `Controller`
+- RESTful method names: `index`, `create`, `store`, `show`, `edit`, `update`, `destroy`
+
+```php
+// Good
+class ReportController extends Controller
+{
+    public function index() { }
+    public function store(Request $request) { }
+}
+
+// Bad
+class ReportsController extends Controller  // Plural
+{
+    public function getReports() { }  // Non-RESTful name
+}
+```
+
+#### Models
+
+- Singular, PascalCase nouns
+- Represent database entities
+
+```php
+// Good
+class Report extends Model { }
+class DesignRequest extends Model { }
+
+// Bad
+class Reports extends Model { }  // Plural
+class design_request extends Model { }  // Snake case
+```
+
+#### Routes
+
+- Lowercase with hyphens for URLs
+- Use resource routes when possible
+
+```php
+// Good
+Route::resource('design-requests', DesignRequestController::class);
+Route::get('lista-precios', [ListaPreciosController::class, 'index']);
+
+// Bad
+Route::get('DesignRequests', ...)  // PascalCase in URL
+Route::get('design_requests', ...)  // Underscores
+```
+
+#### Database
+
+- Table names: plural, snake_case
+- Column names: singular, snake_case
+- Foreign keys: `{model}_id`
+- Pivot tables: alphabetical order, snake_case
+
+```php
+// Migration
+Schema::create('design_requests', function (Blueprint $table) {
+    $table->id();
+    $table->string('title');
+    $table->foreignId('design_priority_id')  // Foreign key pattern
+        ->constrained()
+        ->onDelete('cascade');
+    $table->timestamps();
+});
+```
+
+### Type Hinting
+
+Always use type hints for parameters and return types:
+
+```php
+// Good
+public function store(Request $request): JsonResponse
+{
+    $report = Report::create($request->validated());
+    return response()->json($report, 201);
+}
+
+// Bad
+public function store($request)  // Missing type hints
+{
+    $report = Report::create($request->all());
+    return response()->json($report);
+}
+```
+
+### Eloquent Best Practices
+
+#### Use Mass Assignment Protection
+
+```php
+class Report extends Model
+{
+    protected $fillable = [
+        'name',
+        'group_id',
+        'report_id',
+        'dataset_id',
+    ];
+    
+    // Or use guarded
+    protected $guarded = ['id'];
+}
+```
+
+#### Define Relationships Clearly
+
+```php
+class User extends Model
+{
+    public function reports(): BelongsToMany
+    {
+        return $this->belongsToMany(Report::class, 'user_reports')
+            ->withPivot('is_default')
+            ->withTimestamps();
+    }
+    
+    public function designRequests(): HasMany
+    {
+        return $this->hasMany(DesignRequest::class);
+    }
+}
+```
+
+#### Use Scopes for Reusable Queries
+
+```php
+class Report extends Model
+{
+    public function scopeActive($query)
+    {
+        return $query->whereNotNull('token')
+            ->where('expiration_date', '>', now());
+    }
+}
+
+// Usage
+$activeReports = Report::active()->get();
+```
+
+### Controller Organization
+
+#### Single Responsibility
+
+Each controller should handle one resource:
+
+```php
+// Good - focused on reports
+class ReportController extends Controller
+{
+    public function index() { }
+    public function store(Request $request) { }
+}
+
+// Bad - mixing concerns
+class DashboardController extends Controller
+{
+    public function showReports() { }
+    public function showUsers() { }
+    public function showSettings() { }
+}
+```
+
+#### Dependency Injection
+
+```php
+class ReportController extends Controller
+{
+    public function __construct(
+        private ReportService $reportService,
+        private PowerBIService $powerBIService
+    ) {}
+    
+    public function store(Request $request): JsonResponse
+    {
+        $report = $this->reportService->create($request->validated());
+        return response()->json($report, 201);
+    }
+}
+```
+
+### Validation
+
+#### Use Form Requests
+
+```php
+php artisan make:request StoreReportRequest
+```
+
+```php
+class StoreReportRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()->can('report.create');
+    }
+    
+    public function rules(): array
+    {
+        return [
+            'name' => 'required|string|max:255',
+            'group_id' => 'required|string',
+            'report_id' => 'required|string',
+            'dataset_id' => 'required|string',
+            'access_level' => 'required|in:View,Edit,Create',
+        ];
+    }
+}
+```
+
+Use in controller:
+
+```php
+public function store(StoreReportRequest $request): JsonResponse
+{
+    $report = Report::create($request->validated());
+    return response()->json($report, 201);
+}
+```
+
+### Comments and Documentation
+
+#### DocBlocks
+
+Use PHPDoc for public methods:
+
+```php
+/**
+ * Generate an embed token for a Power BI report.
+ *
+ * @param  string  $userAccessToken  OAuth access token
+ * @param  Report  $report  Report model instance
+ * @return object  Contains status, token, and expiration
+ * @throws GuzzleException
+ */
+protected function getReportAccessToken(string $userAccessToken, Report $report): object
+{
+    // Implementation
+}
+```
+
+#### Inline Comments
+
+Comment complex logic, not obvious code:
+
+```php
+// Good - explains why
+// Check if cached token is still valid before making API call
+if ($report->token === null || Carbon::now() >= $report->expiration_date) {
+    $token = $this->getReportAccessToken($this->userAccessToken, $report);
+}
+
+// Bad - states the obvious
+// Get the user
+$user = auth()->user();
+```
+
+## Vue.js/JavaScript Standards
+
+### Vue Component Structure
+
+Use the standard order:
+
+```vue
+<script setup>
+// 1. Imports
+import { ref, computed, onMounted } from 'vue';
+import { router } from '@inertiajs/vue3';
+
+// 2. Props
+const props = defineProps({
+  report: Object,
+  users: Array,
+});
+
+// 3. Emits
+const emit = defineEmits(['update', 'delete']);
+
+// 4. Reactive state
+const isLoading = ref(false);
+
+// 5. Computed properties
+const formattedDate = computed(() => {
+  return new Date(props.report.created_at).toLocaleDateString();
+});
+
+// 6. Methods
+const deleteReport = () => {
+  router.delete(route('report.destroy', props.report.id));
+};
+
+// 7. Lifecycle hooks
+onMounted(() => {
+  console.log('Component mounted');
+});
+</script>
+
+<template>
+  <!-- Template here -->
+</template>
+
+<style scoped>
+/* Component styles */
+</style>
+```
+
+### Component Naming
+
+- PascalCase for component files: `ReportCard.vue`, `UserList.vue`
+- kebab-case in templates: `<report-card>`, `<user-list>`
+
+```vue
+<!-- Good -->
+<script setup>
+import ReportCard from '@/Components/ReportCard.vue';
+</script>
+
+<template>
+  <report-card :report="report" />
+</template>
+
+<!-- Bad -->
+<template>
+  <ReportCard :report="report" />  <!-- PascalCase in template -->
+</template>
+```
+
+### Props Definition
+
+Always define prop types:
+
+```vue
+<script setup>
+// Good
+const props = defineProps({
+  report: {
+    type: Object,
+    required: true,
+  },
+  users: {
+    type: Array,
+    default: () => [],
+  },
+  isLoading: {
+    type: Boolean,
+    default: false,
+  },
+});
+
+// Bad
+const props = defineProps(['report', 'users']);
+</script>
+```
+
+### Event Handling
+
+Use descriptive event names:
+
+```vue
+<script setup>
+// Good
+const emit = defineEmits(['report-updated', 'report-deleted']);
+
+const handleUpdate = () => {
+  emit('report-updated', updatedReport);
+};
+
+// Bad
+const emit = defineEmits(['update', 'delete']);  // Too generic
+</script>
+```
+
+### JavaScript Style
+
+#### Use ES6+ Features
+
+```javascript
+// Good
+const users = props.users.filter(user => user.active);
+const userNames = users.map(user => user.name);
+
+// Bad
+var users = [];
+for (var i = 0; i < props.users.length; i++) {
+    if (props.users[i].active) {
+        users.push(props.users[i]);
+    }
+}
+```
+
+#### Destructuring
+
+```javascript
+// Good
+const { name, email, role } = props.user;
+
+// Bad
+const name = props.user.name;
+const email = props.user.email;
+const role = props.user.role;
+```
+
+### Tailwind CSS Guidelines
+
+#### Class Order
+
+Follow a consistent order:
+
+1. Layout (display, position)
+2. Box model (width, height, padding, margin)
+3. Typography (font, text)
+4. Visual (background, border)
+5. Misc (cursor, transform)
+
+```vue
+<!-- Good -->
+<div class="flex items-center justify-between w-full p-4 text-lg font-semibold bg-white border border-gray-200 rounded-lg hover:bg-gray-50">
+  Content
+</div>
+
+<!-- Bad - random order -->
+<div class="bg-white p-4 flex rounded-lg border-gray-200 items-center font-semibold w-full justify-between text-lg border hover:bg-gray-50">
+  Content
+</div>
+```
+
+#### Extract Repeated Patterns
+
+For commonly repeated class combinations, create components:
+
+```vue
+<!-- Instead of repeating this everywhere -->
+<button class="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+  Click Me
+</button>
+
+<!-- Create PrimaryButton.vue component -->
+<PrimaryButton>Click Me</PrimaryButton>
+```
+
+## Git Commit Standards
+
+### Commit Message Format
+
+Use conventional commits:
+
+```
+type(scope): subject
+
+body (optional)
+
+footer (optional)
+```
+
+**Types**:
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `style`: Code style changes (formatting)
+- `refactor`: Code refactoring
+- `test`: Adding tests
+- `chore`: Maintenance tasks
+
+**Examples**:
+
+```bash
+feat(reports): add Power BI embed token caching
+
+Implements database caching for Power BI embed tokens to reduce API calls.
+Tokens are cached with their expiration date and refreshed automatically.
+
+Closes #123
+```
+
+```bash
+fix(auth): resolve LDAP authentication loop
+
+Fixed infinite redirect when LDAP user has no local account.
+```
+
+### Branch Naming
+
+- `feature/description` - New features
+- `fix/description` - Bug fixes
+- `refactor/description` - Code refactoring
+- `docs/description` - Documentation updates
+
+```bash
+git checkout -b feature/power-bi-filters
+git checkout -b fix/user-permission-check
+```
+
+## Code Review Checklist
+
+Before submitting a pull request:
+
+- [ ] Code follows PSR-12 (run `./vendor/bin/pint --test`)
+- [ ] All tests pass (`php artisan test`)
+- [ ] New features have tests
+- [ ] No debug statements (`dd()`, `dump()`, `console.log()`)
+- [ ] Comments explain "why", not "what"
+- [ ] Type hints used for all methods
+- [ ] Validation uses Form Requests
+- [ ] Database changes have migrations
+- [ ] Frontend follows Vue.js style guide
+- [ ] Commit messages are descriptive
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Development Setup" href="/development/setup">
+    Set up your development environment
+  </Card>
+  <Card title="Testing Guide" href="/development/testing">
+    Learn how to write and run tests
+  </Card>
+  <Card title="Architecture" href="/development/architecture">
+    Understand the system architecture
+  </Card>
+  <Card title="Database Schema" href="/development/database-schema">
+    Explore the database structure
+  </Card>
+</CardGroup>

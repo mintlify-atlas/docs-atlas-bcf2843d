@@ -1,0 +1,495 @@
+---
+title: 'Technical Routes'
+description: 'Technical route CRUD API for field service visit management'
+---
+
+## Technical Routes Overview
+
+Manage technical service routes for field technicians, including visit scheduling, client information, and route status tracking.
+
+## List Technical Routes
+
+Retrieve technical routes accessible to the authenticated user.
+
+```bash
+GET /rutas-tecnicas
+```
+
+### Authentication & Permissions
+
+<ParamField header="Authorization" type="string" required>
+  Valid session or Sanctum token
+</ParamField>
+
+Requires:
+- `rutas-tecnicas.ver` permission
+
+### Authorization Behavior
+
+**Regular Users:**
+- See only routes where they are the vendor (`CodVendedor`)
+- See routes of shared technical users
+
+**Supervisors/Admins:**
+- Users with `rutas-tecnicas.ver-todos` permission
+- Roles: `super-admin`, `AsistenteVentas`, `Gerencia`, `supervisor`
+- Can see all routes in the system
+
+### Query Parameters
+
+<ParamField query="fecha_inicio" type="date">
+  Filter routes starting from this date
+</ParamField>
+
+<ParamField query="fecha_fin" type="date">
+  Filter routes ending on or before this date
+</ParamField>
+
+### Response
+
+Returns Inertia view with:
+
+<ResponseField name="rutas" type="array">
+  Array of route objects grouped by NumeroRuta
+</ResponseField>
+
+<ResponseField name="filtros" type="object">
+  Applied filters
+</ResponseField>
+
+<ResponseField name="permisos" type="object">
+  User permissions for routes
+</ResponseField>
+
+### Route Object Structure
+
+<ResponseField name="NumeroRuta" type="string">
+  Unique route identifier
+</ResponseField>
+
+<ResponseField name="FechaInicio" type="string">
+  Route start date (formatted: YYYY-MM-DD Day)
+</ResponseField>
+
+<ResponseField name="FechaFin" type="string">
+  Route end date (formatted: YYYY-MM-DD Day)
+</ResponseField>
+
+<ResponseField name="CodVendedor" type="string">
+  Vendor/sales representative code
+</ResponseField>
+
+<ResponseField name="cerrada" type="boolean">
+  Whether route is closed
+</ResponseField>
+
+<ResponseField name="totalVisitas" type="integer">
+  Total number of visits in route
+</ResponseField>
+
+<ResponseField name="visitas" type="array">
+  Array of visit objects
+</ResponseField>
+
+## Get Route Details
+
+Retrieve detailed information about a specific route.
+
+```bash
+GET /rutas-tecnicas/{numeroRuta}
+```
+
+### Path Parameters
+
+<ParamField path="numeroRuta" type="string" required>
+  Route number
+</ParamField>
+
+### Response
+
+Returns Inertia view with:
+
+<ResponseField name="ruta" type="object">
+  Route details with all visits
+</ResponseField>
+
+### Visit Object Structure
+
+<ResponseField name="idVisita" type="integer">
+  Visit ID
+</ResponseField>
+
+<ResponseField name="NumeroRuta" type="string">
+  Route number
+</ResponseField>
+
+<ResponseField name="Nit" type="string">
+  Client NIT/document
+</ResponseField>
+
+<ResponseField name="NombreCliente" type="string">
+  Client name
+</ResponseField>
+
+<ResponseField name="DireccionCompleta" type="string">
+  Complete client address
+</ResponseField>
+
+<ResponseField name="FechaVisita" type="string">
+  Scheduled visit date (YYYY-MM-DD Day)
+</ResponseField>
+
+<ResponseField name="NomContacto" type="string">
+  Contact person name
+</ResponseField>
+
+<ResponseField name="TelContacto" type="string">
+  Contact phone number
+</ResponseField>
+
+<ResponseField name="CodVendedor" type="string">
+  Vendor code
+</ResponseField>
+
+<ResponseField name="CodTecnico" type="string">
+  Technician code
+</ResponseField>
+
+<ResponseField name="Observaciones" type="string">
+  Visit observations
+</ResponseField>
+
+## Create Technical Route
+
+Create a new technical route with visits.
+
+```bash
+POST /rutas-tecnicas
+```
+
+### Permissions
+
+Requires:
+- `rutas-tecnicas.crear` permission
+
+### Request Body
+
+<ParamField body="fecha_inicio" type="date" required>
+  Route start date
+</ParamField>
+
+<ParamField body="fecha_fin" type="date" required>
+  Route end date (must be >= fecha_inicio)
+</ParamField>
+
+<ParamField body="visitas" type="array" required>
+  Array of visit objects
+</ParamField>
+
+### Visit Object
+
+<ParamField body="visitas[].nit" type="string" required>
+  Client NIT (max 50 chars)
+</ParamField>
+
+<ParamField body="visitas[].nombre_cliente" type="string" required>
+  Client name (max 200 chars)
+</ParamField>
+
+<ParamField body="visitas[].direccion_completa" type="string" required>
+  Complete address (max 500 chars)
+</ParamField>
+
+<ParamField body="visitas[].fecha_visita" type="date" required>
+  Visit date (must be within route date range)
+</ParamField>
+
+<ParamField body="visitas[].cod_tecnico" type="string" required>
+  Technician code (max 50 chars)
+</ParamField>
+
+<ParamField body="visitas[].nom_contacto" type="string" optional>
+  Contact name (max 200 chars)
+</ParamField>
+
+<ParamField body="visitas[].tel_contacto" type="string" optional>
+  Contact phone (max 50 chars)
+</ParamField>
+
+<ParamField body="visitas[].observaciones" type="string" optional>
+  Visit observations (max 500 chars)
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/rutas-tecnicas \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fecha_inicio": "2026-03-10",
+    "fecha_fin": "2026-03-14",
+    "visitas": [
+      {
+        "nit": "900123456",
+        "nombre_cliente": "Empresa ABC S.A.",
+        "direccion_completa": "Calle 123 #45-67, Bogotá",
+        "fecha_visita": "2026-03-10",
+        "cod_tecnico": "TEC001",
+        "nom_contacto": "Juan Pérez",
+        "tel_contacto": "3001234567",
+        "observaciones": "Mantenimiento preventivo"
+      },
+      {
+        "nit": "900654321",
+        "nombre_cliente": "Industrias XYZ Ltda",
+        "direccion_completa": "Carrera 98 #76-54, Medellín",
+        "fecha_visita": "2026-03-11",
+        "cod_tecnico": "TEC001",
+        "nom_contacto": "María García",
+        "tel_contacto": "3009876543",
+        "observaciones": "Instalación nuevo equipo"
+      }
+    ]
+  }'
+```
+
+### Response
+
+Redirects to create page with success message:
+
+```
+Ruta técnica #{numeroRuta} creada exitosamente con {count} visita(s)
+```
+
+### Route Merging Behavior
+
+If an open route exists with overlapping dates:
+- User is redirected to edit the existing route
+- Routes are shared among advisors and their technical users
+
+## Update Technical Route
+
+Update an existing technical route.
+
+```bash
+PUT /rutas-tecnicas/{numeroRuta}
+```
+
+### Permissions
+
+Requires:
+- `rutas-tecnicas.editar` permission
+- OR ownership of the route
+
+### Path Parameters
+
+<ParamField path="numeroRuta" type="string" required>
+  Route number to update
+</ParamField>
+
+### Request Body
+
+Same structure as create, plus:
+
+<ParamField body="visitas[].idVisita" type="integer" optional>
+  Existing visit ID (omit for new visits)
+</ParamField>
+
+### Ownership Rules
+
+- Users can only modify their own visits
+- Supervisors can modify all visits
+- Deleting visits: only owner or supervisor
+
+### Example Request
+
+```bash
+curl -X PUT https://your-domain.com/rutas-tecnicas/RT-2026-001 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fecha_inicio": "2026-03-10",
+    "fecha_fin": "2026-03-14",
+    "visitas": [
+      {
+        "idVisita": 123,
+        "nit": "900123456",
+        "nombre_cliente": "Empresa ABC S.A.",
+        "direccion_completa": "Calle 123 #45-67, Bogotá",
+        "fecha_visita": "2026-03-10",
+        "cod_tecnico": "TEC001",
+        "nom_contacto": "Juan Pérez Updated",
+        "tel_contacto": "3001234567"
+      }
+    ]
+  }'
+```
+
+### Response
+
+Redirects to route show page with success message.
+
+## Client Search API
+
+Search for clients to add to routes.
+
+```bash
+GET /rutas-tecnicas/api/clientes/buscar
+```
+
+### Query Parameters
+
+<ParamField query="q" type="string" required>
+  Search term (min 2 characters)
+</ParamField>
+
+### Response
+
+<ResponseField name="clients" type="array">
+  Array of matching clients (max 10)
+</ResponseField>
+
+<ResponseField name="ClienteId" type="string">
+  Client ID
+</ResponseField>
+
+<ResponseField name="Nit" type="string">
+  Client NIT
+</ResponseField>
+
+<ResponseField name="NombreCliente" type="string">
+  Client name
+</ResponseField>
+
+<ResponseField name="CodAsesor" type="string">
+  Advisor code
+</ResponseField>
+
+<ResponseField name="NombreAsesor" type="string">
+  Advisor name
+</ResponseField>
+
+<ResponseField name="Zona" type="string">
+  Client zone
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET "https://your-domain.com/rutas-tecnicas/api/clientes/buscar?q=ABC" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+## Get Client Addresses
+
+Retrieve all addresses for a specific client.
+
+```bash
+GET /rutas-tecnicas/api/clientes/{clienteId}/direcciones
+```
+
+### Path Parameters
+
+<ParamField path="clienteId" type="string" required>
+  Client NIT/ID
+</ParamField>
+
+### Response
+
+<ResponseField name="addresses" type="array">
+  Array of client addresses
+</ResponseField>
+
+### Address Object
+
+<ResponseField name="DireccionId" type="string">
+  Address ID (NIT-Sede format)
+</ResponseField>
+
+<ResponseField name="NitCliente" type="string">
+  Client NIT
+</ResponseField>
+
+<ResponseField name="Sede" type="string">
+  Branch/location code
+</ResponseField>
+
+<ResponseField name="DireccionCompleta" type="string">
+  Complete address with complement
+</ResponseField>
+
+<ResponseField name="Ciudad" type="string">
+  City
+</ResponseField>
+
+<ResponseField name="Departamento" type="string">
+  Department/state
+</ResponseField>
+
+<ResponseField name="NombreContacto" type="string">
+  Contact person name
+</ResponseField>
+
+## Get Recommended Contact Data
+
+Get contact suggestions based on previous visits to this address.
+
+```bash
+GET /rutas-tecnicas/api/clientes/{clienteId}/contacto-recomendado
+```
+
+### Query Parameters
+
+<ParamField query="direccion" type="string" required>
+  Address to search for
+</ParamField>
+
+### Response
+
+<ResponseField name="sugerencias" type="array">
+  Array of suggested contacts (max 10)
+</ResponseField>
+
+<ResponseField name="nomContacto" type="string">
+  Contact name
+</ResponseField>
+
+<ResponseField name="telContacto" type="string">
+  Contact phone
+</ResponseField>
+
+<ResponseField name="fechaVisita" type="date">
+  Date of previous visit
+</ResponseField>
+
+<ResponseField name="label" type="string">
+  Formatted label for display
+</ResponseField>
+
+## Implementation Notes
+
+**Source:** `app/Http/Controllers/RutaTecnicaController.php`
+
+### Route Auto-Close
+
+Routes are automatically closed on Friday after 2:00 PM via `RutaTecnica::cerrarRutasVencidas()`.
+
+### Route Number Generation
+
+Route numbers are generated using `RutaTecnica::generarNumeroRuta()`.
+
+### Data Sources
+
+Client data is retrieved from SQL Server database connection `sqlsrv`:
+- Clients: `V_360_tec_clientes` view
+- Addresses: `V_360_tec_clientes_sedes` view
+
+### Date Formatting
+
+Dates are formatted with Spanish day names:
+- Format: `YYYY-MM-DD Day`
+- Example: `2026-03-10 Lun`
+
+**Source:** `RutaTecnicaController.php:26-44`

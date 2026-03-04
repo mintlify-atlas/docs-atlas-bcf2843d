@@ -1,0 +1,407 @@
+---
+title: Database Configuration
+description: MySQL and SQL Server database configuration, connections, and migrations in GB App
+---
+
+## Overview
+
+GB App supports multiple database connections:
+
+- **MySQL** - Primary database for application data
+- **SQL Server** - Optional secondary databases for external data sources
+
+## Database Configuration File
+
+Database connections are defined in `config/database.php`:
+
+```php config/database.php
+'default' => env('DB_CONNECTION', 'mysql'),
+
+'connections' => [
+    'mysql' => [
+        'driver' => 'mysql',
+        'url' => env('DATABASE_URL'),
+        'host' => env('DB_HOST', 'db'),
+        'port' => env('DB_PORT', '3306'),
+        'database' => env('DB_DATABASE', 'GBapp'),
+        'username' => env('DB_USERNAME', 'root'),
+        'password' => env('DB_PASSWORD', 'passwordr'),
+        'unix_socket' => env('DB_SOCKET', ''),
+        'charset' => 'utf8mb4',
+        'collation' => 'utf8mb4_unicode_ci',
+        'prefix' => '',
+        'prefix_indexes' => true,
+        'strict' => true,
+        'engine' => null,
+        'options' => extension_loaded('pdo_mysql') ? array_filter([
+            PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+        ]) : [],
+    ],
+
+    'sqlsrv' => [
+        'driver' => 'sqlsrv',
+        'host' => env('SQLSRV_HOST'),
+        'port' => env('SQLSRV_PORT'),
+        'database' => env('SQLSRV_DATABASE'),
+        'username' => env('SQLSRV_USERNAME'),
+        'password' => env('SQLSRV_PASSWORD'),
+        'charset' => 'utf8',
+        'prefix' => '',
+        'prefix_indexes' => true,
+        'encrypt' => env('SQLSRV_ENCRYPT', 'true'),
+        'trust_server_certificate' => env('SQLSRV_TRUST_SERVER_CERTIFICATE', true),
+    ],
+
+    'senco360' => [
+        'driver' => 'sqlsrv',
+        'host' => env('SENCO360_HOST'),
+        'port' => env('SENCO360_PORT'),
+        'database' => env('SENCO360_DATABASE'),
+        'username' => env('SENCO360_USERNAME'),
+        'password' => env('SENCO360_PASSWORD'),
+        'encrypt' => env('SENCO360_ENCRYPT', true),
+        'trust_server_certificate' => env('SENCO360_TRUST_SERVER_CERTIFICATE', true),
+    ],
+],
+```
+
+## MySQL Configuration
+
+### Docker Setup (Default)
+
+The docker-compose.yml includes a MySQL 5.7 container:
+
+```yaml docker-compose.yml
+db:
+    image: mysql:5.7
+    container_name: gb-app-db
+    environment:
+        MYSQL_ROOT_PASSWORD: passwordr
+        MYSQL_DATABASE: GBapp
+        MYSQL_USER: pcadmin
+        MYSQL_PASSWORD: password
+    volumes:
+        - db_data:/var/lib/mysql
+    ports:
+        - "3306:3306"
+    restart: unless-stopped
+```
+
+### Environment Configuration
+
+```bash .env
+DB_CONNECTION=mysql
+DB_HOST=db
+DB_PORT=3306
+DB_DATABASE=GBapp
+DB_USERNAME=root
+DB_PASSWORD=passwordr
+```
+
+<Info>
+`DB_HOST=db` references the database service name in docker-compose.yml. For external MySQL servers, use the actual hostname or IP address.
+</Info>
+
+### External MySQL Server
+
+To connect to an external MySQL server:
+
+```bash .env
+DB_CONNECTION=mysql
+DB_HOST=192.168.1.100
+DB_PORT=3306
+DB_DATABASE=gb_app_production
+DB_USERNAME=gb_user
+DB_PASSWORD=secure_password_here
+```
+
+### MySQL SSL Connection
+
+For SSL-encrypted connections:
+
+```bash .env
+DB_CONNECTION=mysql
+DB_HOST=mysql-server.com
+DB_PORT=3306
+DB_DATABASE=GBapp
+DB_USERNAME=root
+DB_PASSWORD=password
+MYSQL_ATTR_SSL_CA=/path/to/ca-cert.pem
+```
+
+## SQL Server Configuration
+
+GB App includes SQL Server support via the Microsoft ODBC Driver.
+
+### PHP Extensions
+
+The Dockerfile includes SQL Server drivers:
+
+```dockerfile
+# Install SQL Server ODBC driver and PHP SQL Server extensions
+RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - && \
+    curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list > /etc/apt/sources.list.d/mssql-release.list && \
+    apt-get update && ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev && \
+    ACCEPT_EULA=Y apt-get install -y mssql-tools && \
+    pecl install sqlsrv pdo_sqlsrv && \
+    echo "; priority=20\nextension=sqlsrv.so\n" > /etc/php/8.2/mods-available/sqlsrv.ini && \
+    echo "; priority=30\nextension=pdo_sqlsrv.so\n" > /etc/php/8.2/mods-available/pdo_sqlsrv.ini && \
+    phpenmod -v 8.2 sqlsrv pdo_sqlsrv
+```
+
+### Environment Configuration
+
+For a SQL Server primary database:
+
+```bash .env
+DB_CONNECTION=sqlsrv
+DB_HOST=sqlserver.domain.com
+DB_PORT=1433
+DB_DATABASE=GBapp
+DB_USERNAME=sa
+DB_PASSWORD=YourStrong@Passw0rd
+```
+
+### Additional SQL Server Connections
+
+GB App supports multiple named SQL Server connections:
+
+```bash .env
+# Senco360 Database
+SENCO360_HOST=10.10.10.100
+SENCO360_PORT=1433
+SENCO360_DATABASE=senco360
+SENCO360_USERNAME=senco_user
+SENCO360_PASSWORD=password
+SENCO360_ENCRYPT=true
+SENCO360_TRUST_SERVER_CERTIFICATE=true
+```
+
+### SQL Server Encryption
+
+- **SQLSRV_ENCRYPT**: Enable/disable encryption (`true`/`false`)
+- **SQLSRV_TRUST_SERVER_CERTIFICATE**: Trust self-signed certificates (`true`/`false`)
+
+For production with valid SSL certificates:
+
+```bash
+SQLSRV_ENCRYPT=true
+SQLSRV_TRUST_SERVER_CERTIFICATE=false
+```
+
+For development or self-signed certificates:
+
+```bash
+SQLSRV_ENCRYPT=true
+SQLSRV_TRUST_SERVER_CERTIFICATE=true
+```
+
+## Using Multiple Connections
+
+### In Models
+
+Specify the connection in your model:
+
+```php
+class User extends Model
+{
+    protected $connection = 'mysql';
+}
+
+class ExternalData extends Model
+{
+    protected $connection = 'senco360';
+}
+```
+
+### In Queries
+
+```php
+// Use default connection
+$users = User::all();
+
+// Use specific connection
+$users = User::on('mysql')->get();
+
+// Query builder with specific connection
+$data = DB::connection('senco360')
+    ->table('customers')
+    ->get();
+```
+
+### In Authentication
+
+The hybrid authentication system explicitly uses MySQL:
+
+```php app/Actions/Fortify/AuthenticateUserHybrid.php
+$user = User::on('mysql')
+            ->where('username', $username)
+            ->orWhere('email', $username)
+            ->first();
+```
+
+## Database Migrations
+
+GB App includes comprehensive migrations for all tables.
+
+### Running Migrations
+
+```bash
+# Run all migrations
+docker compose exec app php artisan migrate
+
+# Run migrations with seed data
+docker compose exec app php artisan migrate --seed
+
+# Rollback last migration
+docker compose exec app php artisan migrate:rollback
+
+# Reset and re-run all migrations
+docker compose exec app php artisan migrate:fresh
+
+# Reset, re-run, and seed
+docker compose exec app php artisan migrate:fresh --seed
+```
+
+### Migration Files
+
+Key migrations included:
+
+```
+2014_10_12_000000_create_users_table.php
+2014_10_12_100000_create_password_reset_tokens_table.php
+2014_10_12_200000_add_two_factor_columns_to_users_table.php
+2019_08_19_000000_create_failed_jobs_table.php
+2019_12_14_000001_create_personal_access_tokens_table.php
+2023_06_30_135731_create_sessions_table.php
+2023_06_30_140153_create_permission_tables.php
+2023_06_30_143012_create_reports_table.php
+2023_07_05_144516_create_user_reports_table.php
+2023_08_16_092408_create_report_filters_table.php
+2023_08_16_093151_create_pvt_report_user_filters_table.php
+2023_11_20_071601_add_fields1_to_reports_table.php
+2026_01_14_095321_add_ldap_fields_to_users_table.php
+2026_01_30_105056_add_cedula_and_codigo_vendedor_to_users_table.php
+2026_02_11_120000_add_advisor_id_to_users_table.php
+2026_02_12_170000_create_advisor_technical_user_table.php
+```
+
+### Users Table Structure
+
+```php database/migrations/2014_10_12_000000_create_users_table.php
+Schema::create('users', function (Blueprint $table) {
+    $table->id();
+    $table->string('name');
+    $table->string('username')->unique();
+    $table->string('email')->unique();
+    $table->timestamp('email_verified_at')->nullable();
+    $table->string('password');
+    $table->rememberToken();
+    $table->foreignId('current_team_id')->nullable();
+    $table->string('profile_photo_path', 2048)->nullable();
+    $table->enum('type', ['customer', 'designer', 'seller'])->nullable();
+    $table->timestamps();
+});
+```
+
+LDAP fields added via migration:
+
+```php database/migrations/2026_01_14_095321_add_ldap_fields_to_users_table.php
+Schema::table('users', function (Blueprint $table) {
+    $table->string('guid')->unique()->nullable()->after('id');
+    $table->string('domain')->nullable()->after('guid');
+    $table->boolean('is_ldap_user')->default(false)->after('domain');
+});
+```
+
+### Reports Table Structure
+
+```php database/migrations/2023_06_30_143012_create_reports_table.php
+Schema::create('reports', function (Blueprint $table) {
+    $table->id();
+    $table->string('name')->unique();
+    $table->string('group_id');
+    $table->string('report_id');
+    $table->string('access_level');
+    $table->string('dataset_id');
+    $table->unique(['group_id', 'report_id', 'dataset_id'], 'report_unique_group_report_fk');
+    $table->foreignId('user_id')->constrained('users');
+    $table->timestamps();
+});
+```
+
+## Database Maintenance
+
+### Backup MySQL Database
+
+```bash
+# Inside container
+docker compose exec db mysqldump -u root -ppasswordr GBapp > backup.sql
+
+# From host
+docker compose exec db mysqldump -u root -ppasswordr GBapp > /path/to/backup.sql
+```
+
+### Restore MySQL Database
+
+```bash
+# Inside container
+docker compose exec -T db mysql -u root -ppasswordr GBapp < backup.sql
+
+# From host
+cat backup.sql | docker compose exec -T db mysql -u root -ppasswordr GBapp
+```
+
+### Access MySQL CLI
+
+```bash
+docker compose exec db mysql -u root -ppasswordr GBapp
+```
+
+### Check Database Connection
+
+```bash
+docker compose exec app php artisan tinker
+```
+
+Then run:
+```php
+DB::connection()->getPdo();
+```
+
+## Troubleshooting
+
+<Accordion title="Connection refused to database">
+Check that:
+1. Database container is running: `docker compose ps`
+2. Credentials in `.env` match container environment
+3. Database host is correct (`db` for Docker container)
+4. Port is correct (3306 for MySQL, 1433 for SQL Server)
+</Accordion>
+
+<Accordion title="SQL Server connection fails">
+- Verify SQL Server drivers are installed: `php -m | grep sqlsrv`
+- Check encryption settings (try `SQLSRV_TRUST_SERVER_CERTIFICATE=true`)
+- Ensure SQL Server allows remote connections
+- Verify firewall allows port 1433
+</Accordion>
+
+<Accordion title="Migration fails">
+- Check database exists: `docker compose exec db mysql -u root -ppasswordr -e "SHOW DATABASES;"`
+- Verify user has proper permissions
+- Clear config cache: `php artisan optimize`
+- Check migration status: `php artisan migrate:status`
+</Accordion>
+
+<Accordion title="Character encoding issues">
+Ensure MySQL uses utf8mb4:
+```sql
+ALTER DATABASE GBapp CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+</Accordion>
+
+## Next Steps
+
+- [Configure environment variables](/configuration/environment)
+- [Set up Power BI API](/configuration/power-bi-api)
+- [Run migrations and seed data](/quickstart)

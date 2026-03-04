@@ -1,0 +1,436 @@
+---
+title: 'Price List Search'
+description: 'Price list search, filtering, and export API'
+---
+
+## Price List Overview
+
+Search and filter product price lists with advanced filtering options, statistics, and export capabilities.
+
+## Search Products
+
+Search and filter products from the price list.
+
+```bash
+GET /lista-precios/search
+```
+
+### Authentication & Permissions
+
+<ParamField header="Authorization" type="string" required>
+  Valid session or Sanctum token
+</ParamField>
+
+Requires:
+- `ver-lista-precios` permission
+
+### Query Parameters
+
+<ParamField query="search" type="string">
+  Search term for product description or code
+</ParamField>
+
+<ParamField query="tipo" type="string">
+  Product type/line filter
+</ParamField>
+
+<ParamField query="linea" type="string">
+  Alias for tipo (product line)
+</ParamField>
+
+<ParamField query="clase" type="string">
+  Product class filter
+</ParamField>
+
+<ParamField query="grupo" type="string">
+  Product group filter
+</ParamField>
+
+<ParamField query="solo_con_stock" type="boolean">
+  Filter to show only products with available inventory
+</ParamField>
+
+<ParamField query="order_by" type="string" default="Descripcion">
+  Column to order by
+</ParamField>
+
+<ParamField query="order_direction" type="string" default="asc">
+  Order direction (asc/desc)
+</ParamField>
+
+<ParamField query="per_page" type="integer" default="50">
+  Results per page
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="array">
+  Array of product objects
+</ResponseField>
+
+<ResponseField name="current_page" type="integer">
+  Current page number
+</ResponseField>
+
+<ResponseField name="per_page" type="integer">
+  Results per page
+</ResponseField>
+
+<ResponseField name="total" type="integer">
+  Total number of results
+</ResponseField>
+
+<ResponseField name="last_page" type="integer">
+  Last page number
+</ResponseField>
+
+### Product Object
+
+<ResponseField name="Codigo" type="string">
+  Product code
+</ResponseField>
+
+<ResponseField name="Descripcion" type="string">
+  Product description
+</ResponseField>
+
+<ResponseField name="Tipo" type="string">
+  Product type/line
+</ResponseField>
+
+<ResponseField name="Clase" type="string">
+  Product class
+</ResponseField>
+
+<ResponseField name="Grupo" type="string">
+  Product group
+</ResponseField>
+
+<ResponseField name="Precio" type="number">
+  Product price
+</ResponseField>
+
+<ResponseField name="Inventario" type="number">
+  Available inventory
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET "https://your-domain.com/lista-precios/search?search=tornillo&tipo=Ferreteria&solo_con_stock=true&per_page=20" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+### Example Response
+
+```json
+{
+  "current_page": 1,
+  "data": [
+    {
+      "Codigo": "TORN-001",
+      "Descripcion": "Tornillo hexagonal 1/4 x 2\"",
+      "Tipo": "Ferreteria",
+      "Clase": "Tornilleria",
+      "Grupo": "Hexagonal",
+      "Precio": 150.50,
+      "Inventario": 500
+    },
+    {
+      "Codigo": "TORN-002",
+      "Descripcion": "Tornillo phillips 3/8 x 1.5\"",
+      "Tipo": "Ferreteria",
+      "Clase": "Tornilleria",
+      "Grupo": "Phillips",
+      "Precio": 175.00,
+      "Inventario": 350
+    }
+  ],
+  "per_page": 20,
+  "total": 45,
+  "last_page": 3
+}
+```
+
+## Get Product Details
+
+Retrieve detailed information about a specific product.
+
+```bash
+GET /lista-precios/producto/{codigo}
+```
+
+### Path Parameters
+
+<ParamField path="codigo" type="string" required>
+  Product code
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X GET https://your-domain.com/lista-precios/producto/TORN-001 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+### Response
+
+Returns complete product object or 404 if not found.
+
+```json
+{
+  "Codigo": "TORN-001",
+  "Descripcion": "Tornillo hexagonal 1/4 x 2\"",
+  "Tipo": "Ferreteria",
+  "Clase": "Tornilleria",
+  "Grupo": "Hexagonal",
+  "Precio": 150.50,
+  "Inventario": 500
+}
+```
+
+## Get Related Products
+
+Retrieve products related to a specific product.
+
+```bash
+GET /lista-precios/relacionados/{codigo}
+```
+
+### Path Parameters
+
+<ParamField path="codigo" type="string" required>
+  Product code
+</ParamField>
+
+### Response
+
+<ResponseField name="productos" type="array">
+  Array of related products
+</ResponseField>
+
+<ResponseField name="total" type="integer">
+  Total number of related products
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET https://your-domain.com/lista-precios/relacionados/TORN-001 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+## Get Filter Options
+
+Retrieve available filter options for the price list.
+
+```bash
+GET /lista-precios/api/filtros
+```
+
+### Response
+
+<ResponseField name="tipos" type="array">
+  Available product types/lines
+</ResponseField>
+
+<ResponseField name="clases" type="array">
+  Available product classes
+</ResponseField>
+
+<ResponseField name="grupos" type="array">
+  Available product groups
+</ResponseField>
+
+<ResponseField name="estadisticas" type="object">
+  Statistics about the product catalog
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "tipos": ["Ferreteria", "Electricidad", "Plomeria"],
+  "clases": ["Tornilleria", "Cables", "Tuberias"],
+  "grupos": ["Hexagonal", "Phillips", "PVC"],
+  "estadisticas": {
+    "total_productos": 1250,
+    "con_stock": 980,
+    "sin_stock": 270
+  }
+}
+```
+
+## Get Dynamic Filters
+
+Get filter options based on selected tipo/clase.
+
+```bash
+GET /lista-precios/api/filtros-dinamicos
+```
+
+### Query Parameters
+
+<ParamField query="tipo" type="string">
+  Selected product type
+</ParamField>
+
+<ParamField query="clase" type="string">
+  Selected product class
+</ParamField>
+
+### Response
+
+<ResponseField name="clases" type="array">
+  Classes available for selected tipo
+</ResponseField>
+
+<ResponseField name="grupos" type="array">
+  Groups available for selected tipo/clase combination
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET "https://your-domain.com/lista-precios/api/filtros-dinamicos?tipo=Ferreteria&clase=Tornilleria" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+## Get Statistics
+
+Retrieve price list statistics.
+
+```bash
+GET /lista-precios/api/estadisticas
+```
+
+### Response
+
+<ResponseField name="estadisticas" type="object">
+  Statistics object
+</ResponseField>
+
+<ResponseField name="timestamp" type="string">
+  ISO 8601 timestamp
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "estadisticas": {
+    "total_productos": 1250,
+    "con_stock": 980,
+    "sin_stock": 270,
+    "total_tipos": 15,
+    "total_clases": 45,
+    "total_grupos": 120
+  },
+  "timestamp": "2026-03-04T10:30:00-05:00"
+}
+```
+
+## Export Price List
+
+Export filtered price list to CSV.
+
+```bash
+GET /lista-precios/export
+```
+
+### Query Parameters
+
+Same as search endpoint:
+
+<ParamField query="search" type="string">
+  Search term
+</ParamField>
+
+<ParamField query="tipo" type="string">
+  Product type filter
+</ParamField>
+
+<ParamField query="clase" type="string">
+  Product class filter
+</ParamField>
+
+<ParamField query="grupo" type="string">
+  Product group filter
+</ParamField>
+
+<ParamField query="solo_con_stock" type="boolean">
+  Only products with stock
+</ParamField>
+
+<ParamField query="export_type" type="string" default="csv">
+  Export format (csv or excel)
+</ParamField>
+
+### Response
+
+Returns a streamed CSV file download.
+
+**Content-Type:** `text/csv; charset=utf-8`
+
+**Filename:** `lista_precios_senco_{timestamp}.csv`
+
+### Example Request
+
+```bash
+curl -X GET "https://your-domain.com/lista-precios/export?tipo=Ferreteria&export_type=csv" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -o price_list.csv
+```
+
+## Export to PDF
+
+Export price list to PDF format.
+
+```bash
+GET /lista-precios/pdf
+```
+
+### Query Parameters
+
+Same filtering parameters as search.
+
+### Response
+
+Returns PDF file stream.
+
+**Content-Type:** `application/pdf`
+
+### Example Request
+
+```bash
+curl -X GET "https://your-domain.com/lista-precios/pdf?tipo=Ferreteria" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -o price_list.pdf
+```
+
+## Implementation Notes
+
+**Source:** `app/Http/Controllers/ListaPreciosController.php`
+
+### Service Layer
+
+The controller uses `ListaPreciosService` for business logic:
+- `sanitizarParametros()` - Sanitize input parameters
+- `getProductos()` - Get paginated products
+- `getFiltrosData()` - Get filter options
+- `getProductoDetalle()` - Get product details
+- `exportarCSV()` - Generate CSV export
+- `exportarExcel()` - Generate Excel export
+- `getProductosRelacionados()` - Get related products
+- `getClasesByTipo()` - Get classes for a type
+- `getGruposByTipoClase()` - Get groups for type/class
+
+### Middleware
+
+All routes require:
+- `auth` middleware
+- `permission:ver-lista-precios`

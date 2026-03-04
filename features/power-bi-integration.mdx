@@ -1,0 +1,447 @@
+---
+title: Power BI Integration
+description: Power BI API integration, token management, and report embedding in GB App
+---
+
+## Overview
+
+GB App integrates with Microsoft Power BI using the Power BI REST API to:
+
+- Import reports from Power BI workspaces
+- Generate embed tokens for secure report viewing
+- Embed Power BI reports in the application
+- Manage token expiration and refresh
+
+## PowerBITrait
+
+The core Power BI functionality is implemented in the `PowerBITrait` which provides reusable methods for API interactions.
+
+### Get User Access Token
+
+Obtain an OAuth2 access token from Azure AD:
+
+```php app/Traits/PowerBITrait.php
+protected function getUserAccessToken(): mixed
+{
+    if (config('power-bi.username') === null && config('power-bi.password') === null){
+        return "";
+    }
+
+    $client = new Client([
+        'base_uri' => "https://login.windows.net/common/oauth2/token",
+    ]);
+
+    $response = $client->request('POST', "https://login.windows.net/common/oauth2/token", [
+        'multipart' => [
+            [
+                'name' => 'grant_type',
+                'contents' => config('power-bi.grant_type'),
+            ],
+            [
+                'name' => 'scope',
+                'contents' => 'openid'
+            ],
+            [
+                'name' => 'resource',
+                'contents' => config('power-bi.resource'),
+            ],
+            [
+                'name' => 'client_secret',
+                'contents' => config('power-bi.client_secret'),
+            ],
+            [
+                'name' => 'client_id',
+                'contents' => config('power-bi.client_id'),
+            ],
+            [
+                'name' => 'username',
+                'contents' => config('power-bi.username'),
+            ],
+            [
+                'name' => 'password',
+                'contents' => config('power-bi.password'),
+            ],
+        ],
+    ]);
+
+    return json_decode($response->getBody()->getContents())->access_token;
+}
+```
+
+<Note>
+This method uses the Resource Owner Password Credentials (ROPC) grant type. For production, consider using Service Principal authentication for better security.
+</Note>
+
+### Get Reports in Group
+
+Retrieve all reports from a Power BI workspace (group):
+
+```php app/Traits/PowerBITrait.php
+protected function getReportsInGroup($group_id): array
+{
+    $userAccessToken = $this->getUserAccessToken();
+
+    $client = new Client([
+        'base_uri' => 'https://api.powerbi.com/v1.0/myorg',
+    ]);
+
+    $headers = [
+        'Authorization' => "Bearer $userAccessToken",
+        'Content-type' => 'application/json',
+        'Accept' => 'application/json',
+    ];
+
+    $response = $client->request('GET', "https://api.powerbi.com/v1.0/myorg/groups/$group_id/reports", [
+        'headers' => $headers,
+    ]);
+
+    return json_decode($response->getBody()->getContents())->value;
+}
+```
+
+### Generate Report Embed Token
+
+Create an embed token for a specific report:
+
+```php app/Traits/PowerBITrait.php
+protected function getReportAccessToken($userAccessToken, $report): object
+{
+    try {
+        $client = new Client([
+            'base_uri' => 'https://api.powerbi.com',
+        ]);
+
+        $headers = [
+            'Authorization' => "Bearer $userAccessToken",
+            'Content-type' => 'application/json',
+            'Accept' => 'application/json',
+        ];
+
+        $params = (object) [
+            'accessLevel' => $report->access_level,
+            'datasetId' => $report->dataset_id,
+        ];
+
+        $response = $client->request('POST', "https://api.powerbi.com/v1.0/myorg/groups/$report->group_id/reports/$report->report_id/GenerateToken", [
+            'headers' => $headers,
+            'json' => $params,
+        ]);
+
+        $resp = json_decode($response->getBody()->getContents());
+
+        return (object) [
+            'status' => 200,
+            'tokenId' => $resp->tokenId,
+            'token' => $resp->token,
+            'expiration' => Carbon::parse($resp->expiration)->setTimezone('America/Bogota'),
+        ];
+    } catch (Exception $e) {
+        return (object) [
+            'status' => 500,
+            'message' => $e->getMessage(),
+        ];
+    }
+}
+```
+
+## Report Controller
+
+The `ReportController` manages report viewing and token lifecycle:
+
+### View Report
+
+```php app/Http/Controllers/ReportController.php
+use PowerBITrait;
+
+private string $userAccessToken = '';
+
+public function __construct()
+{
+    if ($this->userAccessToken === '') {
+        $this->userAccessToken = $this->getUserAccessToken();
+    }
+}
+
+public function view($groupId, $reportId)
+{
+    if (auth()->user()->can('super-admin')) {
+        $report = Report::with('user', 'created_by', 'filters')
+            ->where('group_id', '=', $groupId)
+            ->where('report_id', '=', $reportId)
+            ->first();
+    } else {
+        $report = auth()->user()->reports
+            ->where('group_id', '=', $groupId)
+            ->where('report_id', '=', $reportId)
+            ->first();
+
+        if (!$report) {
+            abort(403);
+        }
+    }
+
+    // Check if token is expired or missing
+    if ($report->token === null || Carbon::now() >= $report->expiration_date) {
+        $token = $this->getReportAccessToken($this->userAccessToken, $report);
+
+        if ($token->status === 200) {
+            $report->token = $token->token;
+            $report->expiration_date = $token->expiration;
+            $report->save();
+
+            $report->userAccessToken = $this->userAccessToken;
+            $report->embedUrl = "https://app.powerbi.com/reportEmbed?reportId=$reportId&groupId=$groupId";
+
+            return Inertia::render('Report/View', [
+                'report' => $report,
+            ]);
+        } else {
+            return redirect()->route('report.index')->dangerBanner($token->message);
+        }
+    } else {
+        $report->userAccessToken = $this->userAccessToken;
+        $report->embedUrl = "https://app.powerbi.com/reportEmbed?reportId=$reportId&groupId=$groupId";
+
+        return Inertia::render('Report/View', [
+            'report' => $report,
+        ]);
+    }
+}
+```
+
+<Info>
+Tokens are cached in the database with expiration timestamps. The controller automatically refreshes expired tokens before rendering the report.
+</Info>
+
+### Index Reports
+
+List all reports accessible to the current user:
+
+```php app/Http/Controllers/ReportController.php
+public function index()
+{
+    if (auth()->user()->can('super-admin')) {
+        $reports = Report::all();
+    } else {
+        $reports = auth()->user()->reports;
+    }
+
+    return Inertia::render('Report/Index', [
+        'reports' => $reports,
+    ]);
+}
+```
+
+### Create Report
+
+```php app/Http/Controllers/ReportController.php
+public function store(Request $request)
+{
+    $report = new Report($request->all());
+    $report->user_id = Auth::id();
+    $report->save();
+
+    if (auth()->user()->can('super-admin')) {
+        $reports = Report::with('user', 'created_by', 'filters')->get();
+    } else {
+        $reports = auth()->user()->reports;
+    }
+
+    return response()->json($reports, 200);
+}
+```
+
+## Import Report Controller
+
+Import reports directly from Power BI workspaces:
+
+```php app/Http/Controllers/ImportReportController.php
+use PowerBITrait;
+
+public function index()
+{
+    $current_reports = DB::table('reports')
+        ->pluck('report_id')
+        ->toArray();
+
+    return Inertia::render('Report/Import', [
+        'current_reports' => $current_reports,
+    ]);
+}
+
+public function get_reports(Request $request)
+{
+    try {
+        $result = $this->getReportsInGroup($request->group_id);
+        return response()->json($result);
+    } catch (Exception|GuzzleException $e) {
+        return response()->json($e->getMessage(), 500);
+    }
+}
+
+public function store(Request $request)
+{
+    DB::beginTransaction();
+    try {
+        foreach ($request->selected as $item) {
+            Report::create([
+                'name' => $item['name'],
+                'group_id' => $item['datasetWorkspaceId'],
+                'report_id' => $item['id'],
+                'access_level' => 'View',
+                'dataset_id' => $item['datasetId'],
+                'user_id' => Auth::id(),
+            ]);
+        }
+
+        DB::commit();
+        return response()->json('success', 200);
+    } catch (Exception $e) {
+        DB::rollBack();
+        return response()->json($e->getMessage(), 500);
+    }
+}
+```
+
+## Report Model
+
+The Report model manages Power BI report metadata:
+
+```php app/Models/Report.php
+protected $fillable = [
+    'name', 
+    'group_id', 
+    'report_id', 
+    'access_level', 
+    'dataset_id', 
+    'user_id', 
+    'token', 
+    'expiration_date'
+];
+
+protected $casts = [
+    'created_at' => 'datetime:Y-m-d H:i:s',
+    'updated_at' => 'datetime:Y-m-d H:i:s',
+    'expiration_date' => 'datetime'
+];
+
+public function created_by(): HasOne
+{
+    return $this->hasOne(User::class, 'id', 'user_id');
+}
+
+public function user(): BelongsToMany
+{
+    return $this->belongsToMany(User::class, 'user_reports')
+        ->withPivot('report_id', 'user_id');
+}
+
+public function filters(): BelongsToMany
+{
+    return $this->belongsToMany(ReportFilter::class, 'pvt_report_user_filters', 'report_id', 'filter_id')
+        ->where('user_id', '=', Auth::id())
+        ->withPivot('user_id');
+}
+```
+
+## Routes
+
+Power BI report routes:
+
+```php routes/web.php
+Route::prefix('reports')->group(function () {
+    Route::get('', [ReportController::class, 'index'])
+        ->name('report.index')
+        ->middleware('role_or_permission:super-admin|report.create|report.edit|report.destroy');
+
+    Route::post('', [ReportController::class, 'store'])
+        ->name('report.store')
+        ->middleware('role_or_permission:super-admin|report.create|report.edit');
+
+    Route::delete('{id}', [ReportController::class, 'destroy'])
+        ->name('report.destroy')
+        ->middleware('role_or_permission:super-admin|report.create|report.destroy');
+
+    Route::put('{id}', [ReportController::class, 'update'])
+        ->name('report.update')
+        ->middleware('role_or_permission:super-admin|report.create|report.edit');
+
+    Route::get('{groupId}/{reportId}/view', [ReportController::class, 'view'])
+        ->name('report.view');
+
+    // Import routes
+    Route::prefix('import')->group(function () {
+        Route::get('', [ImportReportController::class, 'index'])
+            ->name('report.import.index')
+            ->middleware('role_or_permission:super-admin|import-report');
+
+        Route::post('', [ImportReportController::class, 'store'])
+            ->name('report.import.store')
+            ->middleware('role_or_permission:super-admin|import-report');
+
+        Route::get('get-reports', [ImportReportController::class, 'get_reports'])
+            ->name('report.import.get-reports')
+            ->middleware('role_or_permission:super-admin|import-report');
+    });
+});
+```
+
+## Frontend Integration
+
+The frontend uses the `powerbi-client-vue-js` package to embed reports:
+
+```json package.json
+"dependencies": {
+    "powerbi-client": "^2.22.3",
+    "powerbi-client-vue-js": "^1.0.3"
+}
+```
+
+## Token Lifecycle
+
+<Steps>
+
+<Step title="User Requests Report">
+User navigates to `/reports/{groupId}/{reportId}/view`
+</Step>
+
+<Step title="Check Token">
+Controller checks if report has a valid, non-expired token
+</Step>
+
+<Step title="Generate Token if Needed">
+If token is missing or expired:
+1. Get user access token from Azure AD
+2. Generate embed token for report
+3. Save token and expiration to database
+</Step>
+
+<Step title="Render Report">
+Pass report data with token to frontend:
+- `token`: Embed token
+- `embedUrl`: Report embed URL
+- `userAccessToken`: User access token
+</Step>
+
+<Step title="Embed in Frontend">
+Vue component uses Power BI client to embed report with token
+</Step>
+
+</Steps>
+
+<Warning>
+Embed tokens typically expire after 1 hour. The application automatically regenerates tokens when they expire.
+</Warning>
+
+## Power BI API Endpoints Used
+
+- **Token Endpoint**: `https://login.windows.net/common/oauth2/token`
+- **Get Reports**: `https://api.powerbi.com/v1.0/myorg/groups/{groupId}/reports`
+- **Generate Token**: `https://api.powerbi.com/v1.0/myorg/groups/{groupId}/reports/{reportId}/GenerateToken`
+- **Embed URL**: `https://app.powerbi.com/reportEmbed?reportId={reportId}&groupId={groupId}`
+
+## Next Steps
+
+- [Configure Power BI API credentials](/configuration/power-bi-api)
+- [Manage report assignments](/features/report-management)
+- [Set up report filters](/features/report-management)

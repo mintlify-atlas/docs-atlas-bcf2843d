@@ -1,0 +1,358 @@
+---
+title: Price List Management
+description: Search, filter, and export product price lists with inventory tracking and dynamic filters
+---
+
+## Overview
+
+The Price List module provides a comprehensive interface for searching and managing product catalogs with real-time inventory data. It connects to SQL Server views and offers advanced filtering, search, and export capabilities.
+
+**Controller:** `ListaPreciosController` (app/Http/Controllers/ListaPreciosController.php:13)  
+**Model:** `ListaPrecio` (app/Models/ListaPrecio.php:8)  
+**Service:** `ListaPreciosService` (app/Services/ListaPreciosService.php)  
+**Vue Components:**
+- `resources/js/Pages/ListaPrecios/Index.vue`
+- `resources/js/Pages/ListaPrecios/Partials/SearchBar.vue`
+- `resources/js/Pages/ListaPrecios/Partials/ProductTable.vue`
+- `resources/js/Pages/ListaPrecios/Partials/ProductFilters.vue`
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Advanced Search" icon="magnifying-glass">
+    Search across multiple fields: code, reference, description, type, class, group, subgroup
+  </Card>
+  <Card title="Dynamic Filters" icon="filter">
+    Filter by Type (Tipo), Class (Clase), Group (Grupo) with cascading options
+  </Card>
+  <Card title="Inventory Tracking" icon="boxes-stacked">
+    Real-time stock information with filter for products with available inventory
+  </Card>
+  <Card title="Export Options" icon="file-export">
+    Export to CSV or Excel with applied filters
+  </Card>
+</CardGroup>
+
+## Data Model
+
+The `ListaPrecio` model connects to SQL Server view `dbo.Senco_View_listaprecios_inventario`:
+
+```php
+protected $connection = 'sqlsrv';
+protected $table = 'dbo.Senco_View_listaprecios_inventario';
+protected $primaryKey = 'Cod Max';
+public $timestamps = false;
+```
+
+### Product Attributes
+
+- **Tipo**: Product type/line
+- **Clase**: Product class
+- **Grupo**: Product group
+- **Subgrupo**: Product subgroup
+- **Referencia**: Product reference code
+- **Cod Max**: Unique product code (primary key)
+- **Descripcion**: Product description
+- **MLiCaja**: Milliliters per box
+- **CJiCRTN**: Boxes per carton
+- **Precio**: Product price
+- **Minimo**: Minimum price
+- **30CJ**: Price for 30 boxes
+- **60CJ**: Price for 60 boxes
+- **100CJ**: Price for 100 boxes
+- **Inventario**: Current inventory
+
+### Model Scopes
+
+The model provides query scopes for efficient filtering (ListaPrecio.php:70-169):
+
+- `search($search)`: Multi-field search with case-insensitive collation
+- `filterByTipo($tipo)`: Filter by type
+- `filterByClase($clase)`: Filter by class
+- `filterByGrupo($grupo)`: Filter by group
+- `filterByLinea($linea)`: Alias for filterByTipo
+- `withStock()`: Products with inventory > 0
+- `orderByField($field, $direction)`: Custom sorting with special handling
+
+## API Endpoints
+
+### View Price List
+
+```http
+GET /lista-precios
+```
+
+Main interface with paginated products and filter data.
+
+**Query Parameters:**
+- `search`: Search term
+- `tipo`: Filter by type
+- `clase`: Filter by class
+- `grupo`: Filter by group
+- `linea`: Alias for tipo
+- `solo_con_stock`: Boolean - show only products with inventory
+- `order_by`: Sort field (default: 'Tipo')
+- `order_direction`: 'asc' or 'desc' (default: 'asc')
+- `per_page`: Results per page (default: 15)
+
+**Response Data:**
+- `productos`: Paginated product results
+- `tipos`: Available types for filter
+- `clases`: Available classes for filter
+- `grupos`: Available groups for filter
+- `estadisticas`: Product statistics
+- `filters`: Current filter values
+
+**Implementation:** ListaPreciosController.php:28-57
+
+**Permission Required:** `ver-lista-precios`
+
+### AJAX Search
+
+```http
+GET /lista-precios/search
+```
+
+API endpoint for AJAX-based searches.
+
+**Returns:** JSON with paginated products
+
+**Implementation:** ListaPreciosController.php:65-71
+
+### Get Product Details
+
+```http
+GET /lista-precios/producto/{codigo}
+```
+
+Retrieve detailed information for a specific product.
+
+**Parameters:**
+- `codigo`: Product code (Cod Max)
+
+**Response:**
+```json
+{
+  "Tipo": "ELEMENTOS DE SUJECION",
+  "Clase": "ADHESIVOS",
+  "Grupo": "CONTACT",
+  "Cod Max": "ABC123",
+  "Descripcion": "Contact Adhesive 1L",
+  "Precio": 45000,
+  "Inventario": 150,
+  "info_embalaje": {
+    "ml_por_caja": 1000,
+    "cajas_por_carton": 12,
+    "precio_30cj": 43000,
+    "precio_60cj": 41000,
+    "precio_100cj": 39000
+  }
+}
+```
+
+**Implementation:** ListaPreciosController.php:79-90
+
+### Get Related Products
+
+```http
+GET /lista-precios/relacionados/{codigo}
+```
+
+Find products related to the specified product (same type/class).
+
+**Implementation:** ListaPreciosController.php:148-156
+
+### Export to CSV/Excel
+
+```http
+GET /lista-precios/export
+```
+
+Export filtered product list.
+
+**Query Parameters:**
+- Same as main view endpoint
+- `export_type`: 'csv' or 'excel'
+
+**Response:** StreamedResponse with downloadable file  
+**Filename Format:** `lista_precios_senco_YYYY-MM-DD_HHMMSS.csv`
+
+**Implementation:** ListaPreciosController.php:98-129
+
+### Export to PDF
+
+```http
+GET /lista-precios/pdf
+```
+
+Export filtered product list as PDF (landscape A4).
+
+**Implementation:** ListaPreciosController.php:196-226
+
+### Get Filter Options
+
+```http
+GET /lista-precios/api/filtros
+```
+
+Retrieve available filter options.
+
+**Response:**
+```json
+{
+  "tipos": ["Type 1", "Type 2"],
+  "clases": ["Class 1", "Class 2"],
+  "grupos": ["Group 1", "Group 2"],
+  "estadisticas": {
+    "total_productos": 1500,
+    "con_stock": 1200,
+    "sin_stock": 300
+  }
+}
+```
+
+**Implementation:** ListaPreciosController.php:136-140
+
+### Get Dynamic Filters
+
+```http
+GET /lista-precios/api/filtros-dinamicos
+```
+
+Get cascading filter options based on current selection.
+
+**Query Parameters:**
+- `tipo`: Selected type (to get relevant classes)
+- `clase`: Selected class (to get relevant groups)
+
+**Response:**
+```json
+{
+  "clases": ["Class 1", "Class 2"],
+  "grupos": ["Group 1", "Group 2"]
+}
+```
+
+**Implementation:** ListaPreciosController.php:179-188
+
+### Get Statistics
+
+```http
+GET /lista-precios/api/estadisticas
+```
+
+Retrieve current product statistics.
+
+**Implementation:** ListaPreciosController.php:163-171
+
+## User Interface
+
+The price list interface consists of modular Vue components:
+
+### Main View (Index.vue)
+- Debounced search with 500ms delay
+- Real-time filter updates with preserveState
+- Pagination controls
+- Export buttons
+- Loading states
+
+### Search Bar Component
+- Full-text search input
+- Search across multiple fields
+- Clear search button
+
+### Product Filters Component
+- Type dropdown (Tipo/Línea)
+- Class dropdown (Clase)
+- Group dropdown (Grupo)
+- Stock filter checkbox
+- Dynamic filter cascading
+- Clear all filters button
+
+### Product Table Component
+- Sortable columns
+- Product details modal
+- Inventory status indicators
+- Price tiers display
+- Packaging information
+
+## Special Features
+
+### Case-Insensitive Search
+
+All searches use SQL Server collation `Latin1_General_CI_AI` for accent-insensitive, case-insensitive matching:
+
+```php
+$q->whereRaw('[Cod Max] COLLATE Latin1_General_CI_AI LIKE ?', [$pattern])
+```
+
+### Custom Sorting
+
+When sorting by Type in ascending order, "ELEMENTOS DE SUJECION" appears first:
+
+```php
+if ($field === 'Tipo' && $direction === 'asc') {
+    return $query
+        ->orderByRaw("CASE WHEN [Tipo] COLLATE Latin1_General_CI_AI 
+                     LIKE 'ELEMENTOS%SUJECION%' THEN 0 ELSE 1 END")
+        ->orderBy('Tipo', 'asc');
+}
+```
+
+**Implementation:** ListaPrecio.php:159-163
+
+### Inventory Status
+
+Products include an `estado_inventario` accessor:
+
+- `sin_stock`: Inventory = 0
+- `bajo`: Inventory < 10
+- `medio`: Inventory < 50
+- `alto`: Inventory >= 50
+
+**Implementation:** ListaPrecio.php:285-298
+
+## Route Configuration
+
+All price list routes require the `ver-lista-precios` permission (routes/web.php:196-224):
+
+```php
+Route::middleware(['auth', 'permission:ver-lista-precios'])
+    ->prefix('lista-precios')
+    ->group(function () {
+        // Routes
+    });
+```
+
+## Performance Optimization
+
+<Note>
+The service layer (`ListaPreciosService`) handles data sanitization, query optimization, and caching of filter options to minimize database queries.
+</Note>
+
+<Info>
+**Database Connection:** This module uses the `sqlsrv` connection defined in `config/database.php`. Ensure SQL Server drivers are properly configured.
+</Info>
+
+## Usage Example
+
+<Steps>
+  <Step title="Navigate to Price List">
+    Access `/lista-precios` with the `ver-lista-precios` permission.
+  </Step>
+  <Step title="Apply Filters">
+    Select Type, Class, or Group from dropdowns. Filters cascade automatically.
+  </Step>
+  <Step title="Search Products">
+    Type in search bar to filter by code, reference, description, or any text field.
+  </Step>
+  <Step title="Filter by Stock">
+    Enable "Solo con stock" to show only products with available inventory.
+  </Step>
+  <Step title="Sort Results">
+    Click column headers to sort by price, inventory, description, etc.
+  </Step>
+  <Step title="Export Data">
+    Click export button to download filtered results as CSV, Excel, or PDF.
+  </Step>
+</Steps>

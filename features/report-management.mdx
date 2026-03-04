@@ -1,0 +1,525 @@
+---
+title: Report Management
+description: Import, create, view, and assign Power BI reports in GB App
+---
+
+## Overview
+
+GB App provides comprehensive report management capabilities:
+
+- Import reports from Power BI workspaces
+- Create and configure report metadata
+- View embedded Power BI reports
+- Assign reports to users
+- Manage report filters
+- Control report access levels
+
+## Report Structure
+
+Reports in GB App are stored with the following metadata:
+
+```php database/migrations/2023_06_30_143012_create_reports_table.php
+Schema::create('reports', function (Blueprint $table) {
+    $table->id();
+    $table->string('name')->unique();
+    $table->string('group_id');
+    $table->string('report_id');
+    $table->string('access_level');
+    $table->string('dataset_id');
+    $table->unique(['group_id', 'report_id', 'dataset_id'], 'report_unique_group_report_fk');
+    $table->foreignId('user_id')->constrained('users');
+    $table->timestamps();
+});
+```
+
+Additional fields added via migration:
+- `token`: Embed token for report viewing
+- `expiration_date`: Token expiration timestamp
+
+## Importing Reports
+
+### Import Controller
+
+The `ImportReportController` handles importing reports from Power BI:
+
+```php app/Http/Controllers/ImportReportController.php
+use PowerBITrait;
+
+public function index()
+{
+    $current_reports = DB::table('reports')
+        ->pluck('report_id')
+        ->toArray();
+
+    return Inertia::render('Report/Import', [
+        'current_reports' => $current_reports,
+    ]);
+}
+
+public function get_reports(Request $request)
+{
+    try {
+        $result = $this->getReportsInGroup($request->group_id);
+        return response()->json($result);
+    } catch (Exception|GuzzleException $e) {
+        return response()->json($e->getMessage(), 500);
+    }
+}
+
+public function store(Request $request)
+{
+    DB::beginTransaction();
+    try {
+        foreach ($request->selected as $item) {
+            Report::create([
+                'name' => $item['name'],
+                'group_id' => $item['datasetWorkspaceId'],
+                'report_id' => $item['id'],
+                'access_level' => 'View',
+                'dataset_id' => $item['datasetId'],
+                'user_id' => Auth::id(),
+            ]);
+        }
+
+        DB::commit();
+        return response()->json('success', 200);
+    } catch (Exception $e) {
+        DB::rollBack();
+        return response()->json($e->getMessage(), 500);
+    }
+}
+```
+
+### Import Process
+
+<Steps>
+
+<Step title="Navigate to Import Page">
+Access `/reports/import` (requires `import-report` permission)
+</Step>
+
+<Step title="Enter Workspace ID">
+Provide the Power BI workspace (group) ID to fetch available reports
+</Step>
+
+<Step title="Fetch Reports">
+The system calls the Power BI API to retrieve all reports in the workspace:
+
+```php
+GET https://api.powerbi.com/v1.0/myorg/groups/{group_id}/reports
+```
+</Step>
+
+<Step title="Select Reports">
+Choose which reports to import. Already imported reports are indicated.
+</Step>
+
+<Step title="Import">
+Selected reports are created in the database with:
+- Report name from Power BI
+- Group ID (workspace ID)
+- Report ID
+- Dataset ID
+- Access level (default: "View")
+- Creator user ID
+</Step>
+
+</Steps>
+
+<Info>
+The import feature prevents duplicate reports by checking existing `report_id` values before displaying the import interface.
+</Info>
+
+## Report CRUD Operations
+
+### List Reports
+
+```php app/Http/Controllers/ReportController.php
+public function index()
+{
+    if (auth()->user()->can('super-admin')) {
+        $reports = Report::all();
+    } else {
+        $reports = auth()->user()->reports;
+    }
+
+    return Inertia::render('Report/Index', [
+        'reports' => $reports,
+    ]);
+}
+```
+
+- **Super Admins**: See all reports in the system
+- **Regular Users**: See only reports assigned to them
+
+### Create Report
+
+```php app/Http/Controllers/ReportController.php
+public function store(Request $request)
+{
+    $report = new Report($request->all());
+    $report->user_id = Auth::id();
+    $report->save();
+
+    if (auth()->user()->can('super-admin')) {
+        $reports = Report::with('user', 'created_by', 'filters')->get();
+    } else {
+        $reports = auth()->user()->reports;
+    }
+
+    return response()->json($reports, 200);
+}
+```
+
+Required fields:
+- `name`: Report display name (unique)
+- `group_id`: Power BI workspace ID
+- `report_id`: Power BI report ID
+- `access_level`: Embed access level (View, Edit, Create)
+- `dataset_id`: Associated dataset ID
+
+### Update Report
+
+```php app/Http/Controllers/ReportController.php
+public function update(Request $request, $id)
+{
+    $report = Report::find($id);
+    $report->update($request->all());
+    $report->save();
+
+    if (auth()->user()->can('super-admin')) {
+        $reports = Report::with('user', 'created_by', 'filters')->get();
+    } else {
+        $reports = auth()->user()->reports;
+    }
+
+    return response()->json($reports, 200);
+}
+```
+
+### Delete Report
+
+```php app/Http/Controllers/ReportController.php
+public function destroy($id)
+{
+    Report::destroy($id);
+
+    if (auth()->user()->can('super-admin')) {
+        $reports = Report::with('user')->get();
+    } else {
+        $reports = auth()->user()->reports;
+    }
+
+    return response()->json($reports, 200);
+}
+```
+
+<Warning>
+Deleting a report removes it from the system but does not delete the actual report from Power BI.
+</Warning>
+
+## Viewing Reports
+
+### View Route
+
+```php routes/web.php
+Route::get('{groupId}/{reportId}/view', [ReportController::class, 'view'])
+    ->name('report.view');
+```
+
+### View Logic
+
+```php app/Http/Controllers/ReportController.php
+public function view($groupId, $reportId)
+{
+    if (auth()->user()->can('super-admin')) {
+        $report = Report::with('user', 'created_by', 'filters')
+            ->where('group_id', '=', $groupId)
+            ->where('report_id', '=', $reportId)
+            ->first();
+    } else {
+        $report = auth()->user()->reports
+            ->where('group_id', '=', $groupId)
+            ->where('report_id', '=', $reportId)
+            ->first();
+
+        if (!$report) {
+            abort(403);
+        }
+    }
+
+    // Check if token is expired or missing
+    if ($report->token === null || Carbon::now() >= $report->expiration_date) {
+        $token = $this->getReportAccessToken($this->userAccessToken, $report);
+
+        if ($token->status === 200) {
+            $report->token = $token->token;
+            $report->expiration_date = $token->expiration;
+            $report->save();
+
+            $report->userAccessToken = $this->userAccessToken;
+            $report->embedUrl = "https://app.powerbi.com/reportEmbed?reportId=$reportId&groupId=$groupId";
+
+            return Inertia::render('Report/View', [
+                'report' => $report,
+            ]);
+        } else {
+            return redirect()->route('report.index')->dangerBanner($token->message);
+        }
+    } else {
+        $report->userAccessToken = $this->userAccessToken;
+        $report->embedUrl = "https://app.powerbi.com/reportEmbed?reportId=$reportId&groupId=$groupId";
+
+        return Inertia::render('Report/View', [
+            'report' => $report,
+        ]);
+    }
+}
+```
+
+### View Process
+
+<Steps>
+
+<Step title="Authorization Check">
+- Super admins can view any report
+- Regular users can only view assigned reports
+- Returns 403 if user doesn't have access
+</Step>
+
+<Step title="Token Validation">
+Check if report has a valid embed token:
+- If missing or expired, generate new token
+- Save token and expiration to database
+</Step>
+
+<Step title="Prepare Embed Data">
+Prepare data for frontend embedding:
+- `token`: Embed token
+- `embedUrl`: Report embed URL
+- `userAccessToken`: User access token
+- Report metadata and filters
+</Step>
+
+<Step title="Render View">
+Pass data to Vue component for Power BI embedding
+</Step>
+
+</Steps>
+
+## Report Assignment
+
+Reports are assigned to users via the `user_reports` pivot table.
+
+### Assignment Methods
+
+#### Assign Reports to User
+
+```php app/Http/Controllers/UserController.php
+public function update_reports(Request $request)
+{
+    DB::beginTransaction();
+    try {
+        $user = User::findOrFail($request->user_id);
+        $user->reports()->sync($request->reports);
+
+        DB::commit();
+        return response()->json('success', 200);
+    } catch (Exception $e) {
+        DB::rollBack();
+        return response()->json($e->getMessage(), 500);
+    }
+}
+```
+
+#### Set Default Report
+
+```php
+public function set_default(Request $request)
+{
+    $user = User::find($request->user_id);
+
+    $user->reports()->updateExistingPivot($request->report_id, [
+        'show' => $request->state,
+    ]);
+
+    return response()->json('success', 200);
+}
+```
+
+### User-Report Relationship
+
+```php app/Models/Report.php
+public function user(): BelongsToMany
+{
+    return $this->belongsToMany(User::class, 'user_reports')
+        ->withPivot('report_id', 'user_id');
+}
+```
+
+```php app/Models/User.php
+public function reports(): BelongsToMany
+{
+    return $this->belongsToMany(Report::class, 'user_reports')
+        ->withPivot('user_id', 'report_id');
+}
+```
+
+## Report Filters
+
+Reports can have filters applied for specific users.
+
+### Filter Model
+
+Filters are stored separately and associated with users and reports:
+
+```php app/Models/Report.php
+public function filters(): BelongsToMany
+{
+    return $this->belongsToMany(ReportFilter::class, 'pvt_report_user_filters', 'report_id', 'filter_id')
+        ->where('user_id', '=', Auth::id())
+        ->withPivot('user_id');
+}
+```
+
+### Filter Array Accessor
+
+```php app/Models/Report.php
+public function getFilterArrayAttribute(): bool|string
+{
+    $filters = $this->filters->toArray();
+    $filters = collect($filters);
+
+    $filters = $filters->map(function ($row) {
+        return [
+            '$schema' => 'http://powerbi.com/product/schema#basic',
+            'target' => [
+                'table' => $row['table'],
+                'column' => $row['column'],
+            ],
+            'operator' => $row['operator'],
+            'values' => $row['parse_values'],
+        ];
+    });
+
+    return json_encode($filters);
+}
+```
+
+This generates Power BI-compatible filter JSON.
+
+### Update User Report Filters
+
+```php app/Http/Controllers/UserController.php
+public function update_filters(Request $request)
+{
+    DB::beginTransaction();
+    try {
+        $user = User::with('reports.filters')->find($request->user_id);
+        $user->reports()
+             ->find($request->report_id)
+             ->filters()
+             ->syncWithPivotValues($request->filters, ['user_id' => $request->user_id]);
+
+        DB::commit();
+        return response()->json('success', 200);
+    } catch (Exception $e) {
+        DB::rollBack();
+        return response()->json($e->getMessage(), 500);
+    }
+}
+```
+
+## Access Levels
+
+Power BI embed tokens support different access levels:
+
+- **View**: Read-only access to reports
+- **Edit**: Can modify report visualizations
+- **Create**: Can create new reports
+
+<Note>
+GB App defaults to "View" access level for imported reports. This can be changed when creating or updating reports.
+</Note>
+
+## Routes
+
+```php routes/web.php
+Route::prefix('reports')->group(function () {
+    Route::get('', [ReportController::class, 'index'])
+        ->name('report.index')
+        ->middleware('role_or_permission:super-admin|report.create|report.edit|report.destroy');
+
+    Route::post('', [ReportController::class, 'store'])
+        ->name('report.store')
+        ->middleware('role_or_permission:super-admin|report.create|report.edit');
+
+    Route::delete('{id}', [ReportController::class, 'destroy'])
+        ->name('report.destroy')
+        ->middleware('role_or_permission:super-admin|report.create|report.destroy');
+
+    Route::put('{id}', [ReportController::class, 'update'])
+        ->name('report.update')
+        ->middleware('role_or_permission:super-admin|report.create|report.edit');
+
+    Route::get('{groupId}/{reportId}/view', [ReportController::class, 'view'])
+        ->name('report.view');
+
+    // Import routes
+    Route::prefix('import')->group(function () {
+        Route::get('', [ImportReportController::class, 'index'])
+            ->name('report.import.index')
+            ->middleware('role_or_permission:super-admin|import-report');
+
+        Route::post('', [ImportReportController::class, 'store'])
+            ->name('report.import.store')
+            ->middleware('role_or_permission:super-admin|import-report');
+
+        Route::get('get-reports', [ImportReportController::class, 'get_reports'])
+            ->name('report.import.get-reports')
+            ->middleware('role_or_permission:super-admin|import-report');
+    });
+
+    // Filter routes
+    Route::prefix('filters')->group(function () {
+        Route::get('', [ReportFilterController::class, 'index'])
+            ->name('report.filter.index')
+            ->middleware('role_or_permission:super-admin|report.filter.index|report.filter.create|report.filter.update|report.filter.destroy');
+
+        Route::post('', [ReportFilterController::class, 'store'])
+            ->name('report.filter.store')
+            ->middleware('role_or_permission:super-admin|report.filter.index|report.filter.create');
+
+        Route::delete('{id}', [ReportFilterController::class, 'destroy'])
+            ->name('report.filter.destroy')
+            ->middleware('role_or_permission:super-admin|report.filter.index|report.filter.destroy');
+
+        Route::put('{id}', [ReportFilterController::class, 'update'])
+            ->name('report.filter.update')
+            ->middleware('role_or_permission:super-admin|report.filter.index|report.filter.update');
+    });
+});
+```
+
+## Frontend Embedding
+
+Reports are embedded using the Power BI JavaScript client:
+
+```json package.json
+"dependencies": {
+    "powerbi-client": "^2.22.3",
+    "powerbi-client-vue-js": "^1.0.3"
+}
+```
+
+The Vue component receives:
+- Embed URL
+- Embed token
+- Report configuration
+- Filter configuration
+
+## Next Steps
+
+- [Configure Power BI API](/configuration/power-bi-api)
+- [Assign reports to users](/features/user-management)
+- [Set up role-based permissions](/features/role-permissions)

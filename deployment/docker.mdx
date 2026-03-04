@@ -1,0 +1,491 @@
+---
+title: Docker Deployment
+description: Docker setup, docker-compose configuration, and container management for GB App
+---
+
+## Overview
+
+GB App uses Docker Compose for containerized deployment with three main services:
+
+- **nginx**: Web server (Nginx stable-alpine)
+- **app**: PHP-FPM application container (Ubuntu 22.04 with PHP 8.2)
+- **db**: MySQL 5.7 database
+
+## Docker Compose Configuration
+
+The complete `docker-compose.yml` configuration:
+
+```yaml docker-compose.yml
+services:
+    nginx:
+        image: nginx:stable-alpine
+        container_name: gb-app-webserver
+        ports:
+            - "80:80"
+        volumes:
+            - ./:/var/www/html
+            - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+        depends_on:
+            - app
+        restart: unless-stopped
+    app:
+        build:
+            context: .
+            dockerfile: Dockerfile
+            args:
+                XDEBUG: 0
+                PHP_IDE_CONFIG: "serverName=gb-app.test"
+        container_name: gb-app-php
+        volumes:
+            - ./:/var/www/html
+        restart: unless-stopped
+        depends_on:
+            - db
+    db:
+        image: mysql:5.7
+        container_name: gb-app-db
+        environment:
+            MYSQL_ROOT_PASSWORD: passwordr
+            MYSQL_DATABASE: GBapp
+            MYSQL_USER: pcadmin
+            MYSQL_PASSWORD: password
+        volumes:
+            - db_data:/var/lib/mysql
+        ports:
+            - "3306:3306"
+        restart: unless-stopped
+
+volumes:
+    db_data:
+```
+
+## Dockerfile
+
+The application container is built from Ubuntu 22.04:
+
+```dockerfile Dockerfile
+# Use Ubuntu 22.04 as the base image
+FROM ubuntu:22.04
+
+# Set environment variable to avoid interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+ARG XDEBUG
+
+# Step 1: Update package lists and install prerequisites
+RUN apt-get update && apt-get install -y \
+    software-properties-common \
+    locales wget curl git gnupg2 nano apt-transport-https && \
+    locale-gen en_US.UTF-8
+
+# Step 2: Add the Ondrej PHP PPA to get PHP 8.2
+RUN add-apt-repository ppa:ondrej/php && apt-get update
+
+# Step 3: Install PHP 8.2 and necessary extensions
+RUN apt-get install -y \
+    php8.2-bcmath php8.2-bz2 php8.2-cli php8.2-common php8.2-curl \
+    php8.2-cgi php8.2-dev php8.2-fpm php8.2-gd php8.2-gmp php8.2-imap php8.2-intl \
+    php8.2-ldap php8.2-mbstring php8.2-mysql php8.2-odbc php8.2-opcache \
+    php8.2-pgsql php8.2-phpdbg php8.2-pspell php8.2-readline php8.2-soap \
+    php8.2-sqlite3 php8.2-tidy php8.2-xml php8.2-xmlrpc php8.2-xsl php8.2-zip \
+    php8.2-mongodb php8.2-swoole php8.2-xdebug \
+    mysql-client cron supervisor
+
+# Step 4: Install Node.js and npm
+RUN curl -sL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y nodejs
+
+# Step 5: Install and configure SQL Server ODBC driver
+RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - && \
+    curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list > /etc/apt/sources.list.d/mssql-release.list && \
+    apt-get update && ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev && \
+    ACCEPT_EULA=Y apt-get install -y mssql-tools && \
+    echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bash_profile && \
+    echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc && \
+    pecl install sqlsrv pdo_sqlsrv && \
+    echo "; priority=20\nextension=sqlsrv.so\n" > /etc/php/8.2/mods-available/sqlsrv.ini && \
+    echo "; priority=30\nextension=pdo_sqlsrv.so\n" > /etc/php/8.2/mods-available/pdo_sqlsrv.ini && \
+    phpenmod -v 8.2 sqlsrv pdo_sqlsrv
+
+# Step 6: Configure PHP-FPM and general PHP settings
+RUN sed -i "s/;date.timezone =.*/date.timezone = UTC/" /etc/php/8.2/cli/php.ini && \
+    sed -i "s/;date.timezone =.*/date.timezone = UTC/" /etc/php/8.2/fpm/php.ini && \
+    sed -i "s/memory_limit =.*/memory_limit = 1024M/" /etc/php/8.2/fpm/php.ini && \
+    sed -i "s/display_errors = Off/display_errors = Off/" /etc/php/8.2/fpm/php.ini && \
+    sed -i "s/upload_max_filesize = .*/upload_max_filesize = 100M/" /etc/php/8.2/fpm/php.ini && \
+    sed -i "s/post_max_size = .*/post_max_size = 100M/" /etc/php/8.2/fpm/php.ini && \
+    sed -i "s/;cgi.fix_pathinfo=1/cgi.fix_pathinfo=0/" /etc/php/8.2/fpm/php.ini && \
+    sed -i -e "s/pid =.*/pid = \/var\/run\/php8.2-fpm.pid/" /etc/php/8.2/fpm/php-fpm.conf && \
+    sed -i -e "s/error_log =.*/error_log = \/proc\/self\/fd\/2/" /etc/php/8.2/fpm/php-fpm.conf && \
+    sed -i -e "s/;daemonize\s*=\s*yes/daemonize = no/g" /etc/php/8.2/fpm/php-fpm.conf && \
+    sed -i "s/listen = .*/listen = 9000/" /etc/php/8.2/fpm/pool.d/www.conf && \
+    sed -i "s/;catch_workers_output = .*/catch_workers_output = yes/" /etc/php/8.2/fpm/pool.d/www.conf
+
+# Step 7: Install Composer
+RUN curl https://getcomposer.org/installer > composer-setup.php && \
+    php composer-setup.php && mv composer.phar /usr/local/bin/composer && rm composer-setup.php
+
+# Set the working directory
+WORKDIR /var/www/html
+
+# Copy Supervisor and PHP config
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY php.ini /etc/php/8.2/mods-available/xdebug.ini
+
+# Ensure proper permissions for Laravel directories
+RUN chown -R www-data:www-data /var/www/html
+
+# Command to start supervisor
+CMD ["/usr/bin/supervisord"]
+```
+
+## Nginx Configuration
+
+```nginx nginx/default.conf
+server {
+    listen 80 default_server;
+    server_name _;
+
+    client_max_body_size 0;
+    proxy_read_timeout 300;
+    proxy_connect_timeout 300;
+    proxy_send_timeout 300;
+    fastcgi_read_timeout 300;
+
+    error_log /var/log/nginx/error.log;
+    access_log /var/log/nginx/access.log;
+
+    root /var/www/html/public;
+
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-Content-Type-Options "nosniff";
+
+    index index.php;
+
+    charset utf-8;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location = /favicon.ico { access_log off; log_not_found off; }
+    location = /robots.txt  { access_log off; log_not_found off; }
+
+    error_page 404 /index.php;
+
+    location ~ \.php$ {
+        try_files $uri =404;
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+        fastcgi_pass app:9000;
+        fastcgi_index index.php;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param PATH_INFO $fastcgi_path_info;
+        fastcgi_param  PHP_VALUE   "memory_limit = 500M; post_max_size = 400M; upload_max_filesize = 300M; max_execution_time = 300;";
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}
+```
+
+## Docker Commands
+
+### Build and Start
+
+```bash
+# Build images
+docker compose build
+
+# Start containers in background
+docker compose up -d
+
+# Build and start in one command
+docker compose up -d --build
+```
+
+### Stop and Remove
+
+```bash
+# Stop containers
+docker compose stop
+
+# Stop and remove containers
+docker compose down
+
+# Remove containers and volumes
+docker compose down -v
+```
+
+### View Logs
+
+```bash
+# View all logs
+docker compose logs
+
+# Follow logs in real-time
+docker compose logs -f
+
+# View specific service logs
+docker compose logs -f app
+docker compose logs -f nginx
+docker compose logs -f db
+
+# View last 100 lines
+docker compose logs --tail=100
+```
+
+### Check Status
+
+```bash
+# List running containers
+docker compose ps
+
+# View container resource usage
+docker stats gb-app-php gb-app-webserver gb-app-db
+```
+
+### Execute Commands
+
+```bash
+# Execute command in app container
+docker compose exec app php artisan migrate
+
+# Open shell in app container
+docker compose exec app bash
+
+# Execute as specific user
+docker compose exec -u www-data app php artisan cache:clear
+
+# Run composer
+docker compose exec app composer install
+
+# Run npm
+docker compose exec app npm install
+```
+
+### Database Access
+
+```bash
+# Access MySQL CLI
+docker compose exec db mysql -u root -ppasswordr GBapp
+
+# Backup database
+docker compose exec db mysqldump -u root -ppasswordr GBapp > backup.sql
+
+# Restore database
+cat backup.sql | docker compose exec -T db mysql -u root -ppasswordr GBapp
+```
+
+## Volume Management
+
+### Named Volumes
+
+The database uses a named volume for persistence:
+
+```yaml
+volumes:
+    db_data:
+```
+
+### List Volumes
+
+```bash
+docker volume ls
+```
+
+### Inspect Volume
+
+```bash
+docker volume inspect gb-app_db_data
+```
+
+### Backup Volume
+
+```bash
+docker run --rm \
+  -v gb-app_db_data:/data \
+  -v $(pwd):/backup \
+  ubuntu tar czf /backup/db_backup.tar.gz /data
+```
+
+### Restore Volume
+
+```bash
+docker run --rm \
+  -v gb-app_db_data:/data \
+  -v $(pwd):/backup \
+  ubuntu tar xzf /backup/db_backup.tar.gz -C /
+```
+
+## Port Configuration
+
+### Default Ports
+
+- **80**: Nginx web server
+- **3306**: MySQL database
+- **9000**: PHP-FPM (internal)
+
+### Change Ports
+
+Edit `docker-compose.yml`:
+
+```yaml
+nginx:
+    ports:
+        - "8080:80"  # Access on port 8080
+
+db:
+    ports:
+        - "3307:3306"  # Access MySQL on port 3307
+```
+
+<Warning>
+After changing ports, update your `.env` file and restart containers.
+</Warning>
+
+## Environment Variables
+
+### Pass to Containers
+
+Add environment variables to docker-compose.yml:
+
+```yaml
+app:
+    environment:
+        - APP_ENV=production
+        - APP_DEBUG=false
+```
+
+Or use .env file:
+
+```yaml
+app:
+    env_file:
+        - .env
+```
+
+## Resource Limits
+
+Limit container resources:
+
+```yaml
+app:
+    deploy:
+        resources:
+            limits:
+                cpus: '2'
+                memory: 2G
+            reservations:
+                cpus: '1'
+                memory: 1G
+
+db:
+    deploy:
+        resources:
+            limits:
+                cpus: '2'
+                memory: 4G
+```
+
+## Health Checks
+
+Add health checks to services:
+
+```yaml
+db:
+    healthcheck:
+        test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ppasswordr"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+
+app:
+    healthcheck:
+        test: ["CMD", "php-fpm8.2", "-t"]
+        interval: 30s
+        timeout: 10s
+        retries: 3
+```
+
+## Restart Policies
+
+Control container restart behavior:
+
+```yaml
+restart: unless-stopped  # Restart always unless manually stopped
+restart: always          # Always restart
+restart: on-failure      # Restart only on failure
+restart: no              # Never restart
+```
+
+## Development vs Production
+
+### Development Configuration
+
+```yaml docker-compose.dev.yml
+services:
+    app:
+        build:
+            args:
+                XDEBUG: 1
+        environment:
+            - APP_ENV=local
+            - APP_DEBUG=true
+```
+
+Use with:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```
+
+### Production Configuration
+
+```yaml docker-compose.prod.yml
+services:
+    app:
+        build:
+            args:
+                XDEBUG: 0
+        environment:
+            - APP_ENV=production
+            - APP_DEBUG=false
+```
+
+## Troubleshooting
+
+<Accordion title="Container fails to start">
+- Check logs: `docker compose logs app`
+- Verify port conflicts: `netstat -tuln | grep 80`
+- Check file permissions
+- Ensure .env file exists
+</Accordion>
+
+<Accordion title="Permission denied errors">
+Fix permissions:
+```bash
+docker compose exec app chown -R www-data:www-data /var/www/html/storage
+docker compose exec app chown -R www-data:www-data /var/www/html/bootstrap/cache
+```
+</Accordion>
+
+<Accordion title="Database connection failed">
+- Check db container is running: `docker compose ps`
+- Verify DB_HOST=db in .env
+- Check database credentials
+- Wait for database to be ready (health check)
+</Accordion>
+
+<Accordion title="Build fails">
+- Clear build cache: `docker compose build --no-cache`
+- Check Dockerfile syntax
+- Verify internet connectivity for package downloads
+- Check disk space: `df -h`
+</Accordion>
+
+## Next Steps
+
+- [Production deployment best practices](/deployment/production)
+- [Troubleshooting common issues](/deployment/troubleshooting)
+- [Environment configuration](/configuration/environment)

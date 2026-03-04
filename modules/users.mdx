@@ -1,0 +1,539 @@
+---
+title: User Management
+description: Create, edit, and manage system users with role assignment, report access, and technical user relationships
+---
+
+## Overview
+
+The User Management module provides comprehensive user administration including user creation, role assignment, report access management, and special relationships for technical users and advisors.
+
+**Controller:** `UserController` (app/Http/Controllers/UserController.php:18)  
+**Model:** `User` (app/Models/User.php:20)  
+**Vue Components:**
+- `resources/js/Pages/Users/Index.vue`
+- `resources/js/Pages/Users/Show.vue`
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="User CRUD" icon="user-plus">
+    Create, read, update, and delete users with validation
+  </Card>
+  <Card title="Role Assignment" icon="user-shield">
+    Assign multiple roles using Spatie Laravel Permission
+  </Card>
+  <Card title="Report Access" icon="chart-simple">
+    Control which Power BI reports users can access
+  </Card>
+  <Card title="Technical Relationships" icon="link">
+    Link advisors with technical users for collaborative workflows
+  </Card>
+  <Card title="LDAP Integration" icon="building">
+    Support for Active Directory authentication
+  </Card>
+  <Card title="Filter Management" icon="filter">
+    Configure report filters per user
+  </Card>
+</CardGroup>
+
+## Data Model
+
+The `User` model extends Laravel's Authenticatable and includes multiple traits:
+
+```php
+use HasApiTokens;
+use HasFactory;
+use HasProfilePhoto;
+use Notifiable;
+use TwoFactorAuthenticatable;
+use HasRoles;  // Spatie Permission
+use AuthenticatesWithLdap;  // LdapRecord
+```
+
+### Fillable Attributes
+
+```php
+protected $fillable = [
+    'name',
+    'username',
+    'email',
+    'password',
+    'type',
+    'guid',              // LDAP GUID
+    'domain',            // LDAP domain
+    'is_ldap_user',      // Boolean flag
+    'cedula',            // ID number
+    'codigo_vendedor',   // Vendor/advisor code
+    'advisor_id',        // Parent advisor (for technical users)
+];
+```
+
+### Relationships
+
+**Reports (Many-to-Many):**
+```php
+public function reports(): BelongsToMany
+{
+    return $this->belongsToMany(Report::class, 'user_reports')
+        ->withPivot('user_id', 'report_id');
+}
+```
+
+**Technical Users (Many-to-Many):**
+```php
+public function technicalUsers(): BelongsToMany
+{
+    return $this->belongsToMany(self::class, 'advisor_technical_user', 
+                                'advisor_id', 'technical_user_id')
+        ->withTimestamps();
+}
+```
+
+**Advisors (Inverse):**
+```php
+public function advisors(): BelongsToMany
+{
+    return $this->belongsToMany(self::class, 'advisor_technical_user', 
+                                'technical_user_id', 'advisor_id')
+        ->withTimestamps();
+}
+```
+
+**Implementation:** User.php:98-118
+
+## Permissions
+
+User management routes require role-based permissions (routes/web.php:68-100):
+
+- `user.index`: View user list
+- `user.show`: View user details
+- `user.create`: Create new users
+- `user.update`: Edit existing users
+- `user.destroy`: Delete users
+- `update-reports`: Manage user report assignments
+- `update-filters`: Manage user report filters
+- `set-default`: Control dashboard report visibility
+
+**Special Access:** Users with `super-admin` role bypass all permission checks.
+
+## API Endpoints
+
+### List Users
+
+```http
+GET /users
+```
+
+Display all users with their reports and roles.
+
+**Response Data:**
+- `users`: All users with reports and roles loaded
+- `roles`: All available roles in the system
+- `reports`: All available Power BI reports
+- `technicalUsers`: Users with role 'tecnico' or 'técnico'
+
+**Implementation:** UserController.php:23-41
+
+### View User Details
+
+```http
+GET /users/{id}/show
+```
+
+Display detailed information for a specific user.
+
+**Response Data:**
+- `user`: Full user data with roles, permissions, reports, and technical users
+- `roles`: Available roles
+- `reports`: Available reports
+- `filters`: Available report filters
+- `technicalUsers`: Selectable technical users
+
+**Implementation:** UserController.php:223-245
+
+### Create User
+
+```http
+POST /users
+```
+
+**Request Body:**
+```json
+{
+  "type": "employee",
+  "name": "John Doe",
+  "username": "jdoe",
+  "email": "jdoe@example.com",
+  "cedula": "123456789",
+  "codigo_vendedor": "V001",
+  "password": "SecurePassword123",
+  "roles": ["Asesor", "Vendedor"],
+  "reports": [1, 2, 3],
+  "technical_users": [5, 7, 9]
+}
+```
+
+**Process:**
+1. Create user with bcrypt password
+2. Sync assigned reports (many-to-many)
+3. Sync roles using Spatie Permission
+4. If role includes "Asesor", sync technical users
+
+**Technical Users Logic:**
+- Only applies if user has "Asesor" role (case-insensitive)
+- Validates that selected users have "tecnico" or "técnico" role
+- Syncs valid technical user IDs to `advisor_technical_user` table
+
+**Response:** JSON array of all users (200) or error message (500)
+
+**Implementation:** UserController.php:46-98
+
+### Update User
+
+```http
+PUT /users/{id}
+```
+
+**Request Body:**
+```json
+{
+  "type": "employee",
+  "name": "John Doe",
+  "username": "jdoe",
+  "email": "jdoe@example.com",
+  "cedula": "123456789",
+  "codigo_vendedor": "V001",
+  "change_password": true,
+  "password": "NewSecurePassword123",
+  "roles": ["Asesor", "Gerencia"],
+  "technical_users": [5, 7]
+}
+```
+
+**Process:**
+1. Update user attributes
+2. Optionally update password if `change_password` is true
+3. Clear permissions and resync roles
+4. Handle technical users based on "Asesor" role
+
+**Technical Users Sync:**
+- Only syncs if payload includes `technical_users` field
+- If user no longer has "Asesor" role, detaches all technical users
+
+**Response:** JSON array of all users (200) or error message (500)
+
+**Implementation:** UserController.php:103-168
+
+### Delete User
+
+```http
+DELETE /users/{id}
+```
+
+**Response:** JSON array of remaining users (200)
+
+**Implementation:** UserController.php:211-218
+
+## Report Management
+
+### Update User Reports
+
+```http
+POST /users/update-reports
+```
+
+Assign or remove reports for a specific user.
+
+**Request Body:**
+```json
+{
+  "user_id": 5,
+  "reports": [1, 2, 3, 4]
+}
+```
+
+**Process:**
+- Uses Laravel's `sync()` method
+- Adds new report assignments
+- Removes unspecified reports
+
+**Implementation:** UserController.php:173-186
+
+### Update Report Filters
+
+```http
+POST /users/report/update-filters
+```
+
+Assign filters to a user's report access.
+
+**Request Body:**
+```json
+{
+  "user_id": 5,
+  "report_id": 2,
+  "filters": [1, 3, 5]
+}
+```
+
+**Process:**
+- Syncs filters with pivot values including `user_id`
+- Filters are applied when user views the report
+
+**Implementation:** UserController.php:191-206
+
+### Set Default Report
+
+```http
+POST /users/report/set-default
+```
+
+Control whether a report appears on the user's dashboard.
+
+**Request Body:**
+```json
+{
+  "user_id": 5,
+  "report_id": 2,
+  "state": true
+}
+```
+
+**Process:**
+- Updates `show` column in `user_reports` pivot table
+- If `show = true`, report appears on dashboard
+- If `show = false`, report is hidden from dashboard
+
+**Implementation:** UserController.php:250-259
+
+## Technical User Relationships
+
+The system supports linking advisors with technical users for collaborative workflows (e.g., Technical Routes).
+
+### Relationship Structure
+
+**Database Table:** `advisor_technical_user`
+
+Columns:
+- `advisor_id`: Foreign key to users (advisor)
+- `technical_user_id`: Foreign key to users (technician)
+- `created_at`: Timestamp
+- `updated_at`: Timestamp
+
+### Use Cases
+
+<Note>
+**Scenario:** Advisor A needs to create technical routes but doesn't perform installations. They work with Technicians T1 and T2.
+
+**Setup:** Link Advisor A with T1 and T2 through `technicalUsers` relationship.
+
+**Result:** When creating routes, Advisor A can only select T1 or T2. Routes are shared between advisor and assigned technician.
+</Note>
+
+### Query Technical Users
+
+The system queries technical users using role-based filtering:
+
+```php
+$technicalUsers = User::whereHas('roles', function ($query) {
+    $query->whereRaw('LOWER(name) IN (?, ?)', ['tecnico', 'técnico']);
+})
+->select(['id', 'name', 'username', 'email', 'codigo_vendedor'])
+->orderBy('name')
+->get();
+```
+
+**Implementation:** UserController.php:28-33
+
+<Info>
+The query uses case-insensitive matching to handle both "tecnico" and "técnico" role names.
+</Info>
+
+## LDAP Integration
+
+Users can authenticate via Active Directory (LDAP) or local credentials:
+
+### LDAP User Attributes
+
+- `guid`: Unique identifier from LDAP
+- `domain`: LDAP domain
+- `is_ldap_user`: Boolean flag
+
+### LDAP Check Method
+
+```php
+public function isLdapUser(): bool
+{
+    return $this->is_ldap_user && !empty($this->guid);
+}
+```
+
+**Implementation:** User.php:92-95
+
+### Authentication Flow
+
+1. User enters username/email and password
+2. System checks `is_ldap_user` flag
+3. If LDAP user: Authenticate against Active Directory
+4. If local user: Authenticate against database
+
+<Note>
+LDAP users do not have passwords stored in the database. The `password` field should be null for LDAP accounts.
+</Note>
+
+## User Types
+
+The `type` field categorizes users:
+
+- `employee`: Internal staff
+- `customer`: External customers
+- `designer`: Design team members
+- `technician`: Technical service personnel
+- Other custom types as needed
+
+Type affects available features and permissions.
+
+## Appended Attributes
+
+The User model appends computed attributes to API responses:
+
+```php
+protected $appends = [
+    'profile_photo_url',  // Laravel Jetstream
+    'role_names',         // Collection of role names
+    'permission_names',   // Collection of permission names
+];
+```
+
+### Role Names Accessor
+
+```php
+public function getRoleNamesAttribute(): Collection
+{
+    return $this->getRoleNames();
+}
+```
+
+### Permission Names Accessor
+
+```php
+public function getPermissionNamesAttribute(): Collection
+{
+    return $this->getAllPermissions()->pluck('name');
+}
+```
+
+**Implementation:** User.php:120-128
+
+These attributes are useful for frontend permission checks.
+
+## User Interface
+
+### Index Page
+
+Displays data table with columns:
+- ID
+- Name
+- Username
+- Email
+- Type
+- Roles (badges)
+- Report Count
+- Actions (View, Edit, Delete)
+
+### User Detail Page
+
+Tabs for:
+1. **User Info**: Name, email, username, type, cedula, vendor code
+2. **Roles & Permissions**: Assigned roles with badge display
+3. **Reports**: Assigned reports with visibility toggles
+4. **Report Filters**: Configure filters per report
+5. **Technical Users**: Linked technical users (if Asesor role)
+
+## Validation & Security
+
+### Password Requirements
+
+- Minimum length (configured in validation rules)
+- Required only when `change_password` is true on update
+- Stored using bcrypt hashing
+
+### Email Uniqueness
+
+Emails must be unique across all users.
+
+### Username Uniqueness
+
+Usernames must be unique across all users.
+
+### Role Validation
+
+Role names are normalized to lowercase before comparison:
+
+```php
+$selectedRoles = collect($request->roles ?? [])->map(function ($role) {
+    return mb_strtolower(trim($role));
+});
+```
+
+**Implementation:** UserController.php:62-64
+
+## Transaction Safety
+
+All create and update operations use database transactions:
+
+```php
+DB::beginTransaction();
+try {
+    // Operations
+    DB::commit();
+} catch (Exception $e) {
+    DB::rollBack();
+    return response()->json($e->getMessage(), 500);
+}
+```
+
+This ensures data consistency if any step fails.
+
+## Usage Workflow
+
+<Steps>
+  <Step title="Create User">
+    Navigate to Users page and click "New User". Fill in required fields: name, username, email, password.
+  </Step>
+  <Step title="Set User Type">
+    Select user type (employee, customer, designer, technician, etc.).
+  </Step>
+  <Step title="Assign Roles">
+    Select one or more roles. Roles control access to features and modules.
+  </Step>
+  <Step title="Link Technical Users">
+    If assigning "Asesor" role, select which technical users they collaborate with.
+  </Step>
+  <Step title="Assign Reports">
+    Select which Power BI reports the user can access.
+  </Step>
+  <Step title="Configure Filters">
+    (Optional) Set report-specific filters for the user.
+  </Step>
+  <Step title="Set Dashboard Visibility">
+    Toggle which reports appear on the user's dashboard by default.
+  </Step>
+</Steps>
+
+## Related Modules
+
+<CardGroup cols={2}>
+  <Card title="Roles" icon="shield">
+    Manage roles and assign permissions
+  </Card>
+  <Card title="Reports" icon="chart-bar">
+    Configure Power BI reports
+  </Card>
+  <Card title="Report Filters" icon="filter">
+    Define filters for report data
+  </Card>
+  <Card title="Technical Routes" icon="route">
+    Utilize advisor-technician relationships
+  </Card>
+</CardGroup>

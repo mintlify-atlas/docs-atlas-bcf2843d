@@ -1,0 +1,253 @@
+---
+title: 'Two-Factor Authentication'
+description: '2FA setup, verification, and recovery code management'
+---
+
+## Two-Factor Authentication
+
+The GB App uses **Laravel Fortify** for Two-Factor Authentication (2FA) functionality. Users can enable TOTP-based 2FA using authenticator apps like Google Authenticator or Authy.
+
+<Note>
+Two-Factor Authentication is managed through Laravel Jetstream's built-in features. The application uses the `TwoFactorAuthenticatable` trait on the User model.
+</Note>
+
+## Enable Two-Factor Authentication
+
+Enable 2FA for the authenticated user.
+
+```bash
+POST /user/two-factor-authentication
+```
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token or valid session
+</ParamField>
+
+<ParamField header="X-CSRF-TOKEN" type="string" required>
+  CSRF token for session-based requests
+</ParamField>
+
+### Response
+
+Returns a 200 status code on success. The user must then retrieve the QR code and recovery codes.
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/user/two-factor-authentication \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-CSRF-TOKEN: YOUR_CSRF_TOKEN" \
+  -H "Accept: application/json"
+```
+
+## Get Two-Factor QR Code
+
+Retrieve the QR code for configuring the authenticator app.
+
+```bash
+GET /user/two-factor-qr-code
+```
+
+### Response
+
+<ResponseField name="svg" type="string">
+  SVG image of the QR code to scan with authenticator app
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET https://your-domain.com/user/two-factor-qr-code \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+### Example Response
+
+```json
+{
+  "svg": "<svg xmlns='http://www.w3.org/2000/svg' ... >...</svg>"
+}
+```
+
+## Get Recovery Codes
+
+Retrieve the two-factor authentication recovery codes.
+
+```bash
+GET /user/two-factor-recovery-codes
+```
+
+### Response
+
+<ResponseField name="recovery_codes" type="array">
+  Array of recovery codes (typically 8 codes)
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET https://your-domain.com/user/two-factor-recovery-codes \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+### Example Response
+
+```json
+[
+  "abc123-def456",
+  "ghi789-jkl012",
+  "mno345-pqr678",
+  "stu901-vwx234",
+  "yza567-bcd890",
+  "efg123-hij456",
+  "klm789-nop012",
+  "qrs345-tuv678"
+]
+```
+
+<Warning>
+Recovery codes should be stored securely by the user. Each code can only be used once.
+</Warning>
+
+## Regenerate Recovery Codes
+
+Generate new recovery codes (invalidates existing ones).
+
+```bash
+POST /user/two-factor-recovery-codes
+```
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token or valid session
+</ParamField>
+
+<ParamField header="X-CSRF-TOKEN" type="string" required>
+  CSRF token for session-based requests
+</ParamField>
+
+### Response
+
+Returns new recovery codes in the same format as GET endpoint.
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/user/two-factor-recovery-codes \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-CSRF-TOKEN: YOUR_CSRF_TOKEN" \
+  -H "Accept: application/json"
+```
+
+## Disable Two-Factor Authentication
+
+Disable 2FA for the authenticated user.
+
+```bash
+DELETE /user/two-factor-authentication
+```
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token or valid session
+</ParamField>
+
+<ParamField header="X-CSRF-TOKEN" type="string" required>
+  CSRF token for session-based requests
+</ParamField>
+
+### Response
+
+Returns a 200 status code on success.
+
+### Example Request
+
+```bash
+curl -X DELETE https://your-domain.com/user/two-factor-authentication \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "X-CSRF-TOKEN: YOUR_CSRF_TOKEN" \
+  -H "Accept: application/json"
+```
+
+## Two-Factor Challenge
+
+When 2FA is enabled, users must complete a two-factor challenge after providing credentials.
+
+### Verify with Code
+
+```bash
+POST /two-factor-challenge
+```
+
+### Request Body
+
+<ParamField body="code" type="string">
+  6-digit code from authenticator app
+</ParamField>
+
+**OR**
+
+<ParamField body="recovery_code" type="string">
+  One-time recovery code
+</ParamField>
+
+### Example Request (TOTP Code)
+
+```bash
+curl -X POST https://your-domain.com/two-factor-challenge \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-TOKEN: YOUR_CSRF_TOKEN" \
+  -d '{
+    "code": "123456"
+  }'
+```
+
+### Example Request (Recovery Code)
+
+```bash
+curl -X POST https://your-domain.com/two-factor-challenge \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-TOKEN: YOUR_CSRF_TOKEN" \
+  -d '{
+    "recovery_code": "abc123-def456"
+  }'
+```
+
+## User Model Fields
+
+The User model includes these 2FA-related fields:
+
+<ResponseField name="two_factor_secret" type="string" hidden>
+  Encrypted TOTP secret (hidden from API responses)
+</ResponseField>
+
+<ResponseField name="two_factor_recovery_codes" type="string" hidden>
+  Encrypted recovery codes (hidden from API responses)
+</ResponseField>
+
+<ResponseField name="two_factor_confirmed_at" type="datetime">
+  Timestamp when 2FA was confirmed
+</ResponseField>
+
+## Setup Flow
+
+1. User enables 2FA via `POST /user/two-factor-authentication`
+2. System generates secret and recovery codes
+3. User retrieves QR code via `GET /user/two-factor-qr-code`
+4. User scans QR code with authenticator app
+5. User saves recovery codes from `GET /user/two-factor-recovery-codes`
+6. User confirms 2FA by entering code on next login
+
+## Best Practices
+
+1. **Store recovery codes securely** - Users should save them in a password manager
+2. **Provide backup authentication** - Recovery codes ensure account access if device is lost
+3. **Time sync important** - TOTP codes require accurate system time
+4. **Rate limit attempts** - Prevent brute force attacks on 2FA codes
+5. **Educate users** - Provide clear instructions for setup and recovery

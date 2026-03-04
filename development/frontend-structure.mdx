@@ -1,0 +1,612 @@
+---
+title: Frontend Structure
+description: Vue.js 3 components, Inertia.js pages, and Tailwind CSS styling in GB App
+---
+
+## Overview
+
+GB App uses Vue.js 3 with the Composition API and Inertia.js for seamless server-side rendering. The frontend is built with Vite for fast development and optimized production builds.
+
+## Technology Stack
+
+<CardGroup cols={2}>
+  <Card title="Vue.js 3" icon="vuejs">
+    Composition API with `<script setup>` syntax
+  </Card>
+  <Card title="Inertia.js" icon="layer-group">
+    SPA-like experience without building an API
+  </Card>
+  <Card title="Tailwind CSS" icon="palette">
+    Utility-first CSS framework
+  </Card>
+  <Card title="Vite" icon="bolt">
+    Fast build tool with HMR
+  </Card>
+</CardGroup>
+
+## Directory Structure
+
+```
+resources/
+├── js/
+│   ├── app.js                          # Application entry point
+│   ├── bootstrap.js                    # Axios, Echo configuration
+│   ├── Components/                     # Reusable components
+│   │   ├── ActionMessage.vue          # Success/error messages
+│   │   ├── ActionSection.vue          # Settings sections
+│   │   ├── ApplicationMark.vue        # Logo component
+│   │   ├── Button.vue                 # Button component
+│   │   ├── Checkbox.vue               # Checkbox input
+│   │   ├── ConfirmationModal.vue      # Confirmation dialogs
+│   │   ├── DangerButton.vue           # Danger action button
+│   │   ├── DialogModal.vue            # Modal dialogs
+│   │   ├── Dropdown.vue               # Dropdown menus
+│   │   ├── FormSection.vue            # Form sections
+│   │   ├── Input.vue                  # Text input
+│   │   ├── InputError.vue             # Validation errors
+│   │   ├── Label.vue                  # Form labels
+│   │   ├── Modal.vue                  # Base modal
+│   │   ├── NavLink.vue                # Navigation link
+│   │   ├── PrimaryButton.vue          # Primary action button
+│   │   ├── ResponsiveNavLink.vue      # Mobile nav link
+│   │   ├── SecondaryButton.vue        # Secondary action button
+│   │   ├── SectionBorder.vue          # Section separator
+│   │   ├── TextInput.vue              # Enhanced text input
+│   │   ├── ValidationErrors.vue       # Error list
+│   │   ├── Welcome.vue                # Welcome dashboard widget
+│   │   ├── Datatables/                # DataTable components
+│   │   │   ├── DataTable.vue         # Main table component
+│   │   │   └── themes/               # Table themes
+│   │   └── RutasTecnicas/            # Technical routes module
+│   │       ├── ClientSearchModal.vue
+│   │       ├── AddressSelector.vue
+│   │       └── RouteForm.vue
+│   ├── CustomComponents/               # Custom form inputs
+│   │   ├── LitePicker/                # Date picker
+│   │   │   └── DatePicker.vue
+│   │   └── TomSelect/                 # Enhanced select
+│   │       └── TomSelect.vue
+│   ├── Layouts/                        # Page layouts
+│   │   ├── AppLayout.vue              # Authenticated user layout
+│   │   └── GuestLayout.vue            # Guest/login layout
+│   └── Pages/                          # Inertia pages
+│       ├── API/
+│       │   ├── Index.vue              # API token management
+│       │   └── Partials/
+│       │       └── ApiTokenManager.vue
+│       ├── Auth/                      # Authentication pages
+│       │   ├── ConfirmPassword.vue
+│       │   ├── ForgotPassword.vue
+│       │   ├── Login.vue
+│       │   ├── Register.vue
+│       │   ├── ResetPassword.vue
+│       │   ├── TwoFactorChallenge.vue
+│       │   └── VerifyEmail.vue
+│       ├── Dashboard.vue              # Main dashboard
+│       ├── Design/                    # Design request module
+│       │   ├── Priority.vue
+│       │   ├── Request.vue
+│       │   ├── Show.vue
+│       │   ├── State.vue
+│       │   └── TimeState.vue
+│       ├── ListaPrecios/              # Price list module
+│       │   ├── Index.vue
+│       │   └── Partials/
+│       │       ├── SearchForm.vue
+│       │       ├── FilterPanel.vue
+│       │       └── ProductCard.vue
+│       ├── Profile/                   # User profile
+│       │   ├── Show.vue
+│       │   └── Partials/
+│       │       ├── UpdateProfileInformationForm.vue
+│       │       ├── UpdatePasswordForm.vue
+│       │       ├── TwoFactorAuthenticationForm.vue
+│       │       ├── LogoutOtherBrowserSessionsForm.vue
+│       │       └── DeleteUserForm.vue
+│       ├── Report/                    # Report management
+│       │   ├── Index.vue              # Report list
+│       │   └── View.vue               # Power BI embed
+│       ├── Role/
+│       │   └── Index.vue              # Role management
+│       ├── RutasTecnicas/             # Technical routes
+│       │   ├── Index.vue
+│       │   ├── Create.vue
+│       │   ├── Edit.vue
+│       │   └── Show.vue
+│       ├── User/
+│       │   ├── Index.vue              # User management
+│       │   └── Show.vue               # User details
+│       ├── PrivacyPolicy.vue
+│       └── TermsOfService.vue
+├── css/
+│   ├── app.css                        # Main CSS (Tailwind imports)
+│   └── components/                    # Custom component styles
+└── views/
+    └── app.blade.php                  # Root HTML template
+```
+
+## Application Entry Point
+
+### app.js
+
+```javascript
+import './bootstrap';
+import '../css/app.css';
+
+import { createApp, h } from 'vue';
+import { createInertiaApp } from '@inertiajs/vue3';
+import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
+import { ZiggyVue } from '../../vendor/tightenco/ziggy/dist/vue.m';
+
+// FontAwesome
+import { library } from '@fortawesome/fontawesome-svg-core';
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
+import { fas } from '@fortawesome/free-solid-svg-icons';
+import { far } from '@fortawesome/free-regular-svg-icons';
+import { fab } from '@fortawesome/free-brands-svg-icons';
+
+library.add(fas, far, fab);
+
+const appName = window.document.getElementsByTagName('title')[0]?.innerText || 'GB App';
+
+createInertiaApp({
+    title: (title) => `${title} - ${appName}`,
+    resolve: (name) => resolvePageComponent(`./Pages/${name}.vue`, import.meta.glob('./Pages/**/*.vue')),
+    setup({ el, App, props, plugin }) {
+        return createApp({ render: () => h(App, props) })
+            .use(plugin)
+            .use(ZiggyVue, Ziggy)
+            .component('font-awesome-icon', FontAwesomeIcon)
+            .mount(el);
+    },
+    progress: {
+        color: '#0078D4',
+    },
+});
+```
+
+## Layouts
+
+### AppLayout.vue
+
+Authenticated user layout with navigation, user menu, and responsive mobile menu:
+
+```vue
+<template>
+  <div>
+    <Head :title="title" />
+
+    <!-- Banner for flash messages -->
+    <Banner />
+
+    <div class="min-h-screen bg-gray-100 dark:bg-gray-900">
+      <!-- Navigation -->
+      <nav class="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
+        <!-- Primary Navigation Menu -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-16">
+            <div class="flex">
+              <!-- Logo -->
+              <div class="shrink-0 flex items-center">
+                <Link :href="route('dashboard')">
+                  <ApplicationMark class="block h-9 w-auto" />
+                </Link>
+              </div>
+
+              <!-- Navigation Links -->
+              <div class="hidden space-x-8 sm:-my-px sm:ml-10 sm:flex">
+                <NavLink :href="route('dashboard')" :active="route().current('dashboard')">
+                  Dashboard
+                </NavLink>
+                
+                <!-- Additional nav links based on permissions -->
+                <NavLink v-if="$page.props.auth.user.permissions.includes('report.index')" 
+                         :href="route('report.index')">
+                  Reports
+                </NavLink>
+              </div>
+            </div>
+
+            <!-- Settings Dropdown -->
+            <div class="hidden sm:flex sm:items-center sm:ml-6">
+              <Dropdown align="right" width="48">
+                <!-- Dropdown trigger -->
+                <template #trigger>
+                  <!-- User menu button -->
+                </template>
+
+                <!-- Dropdown content -->
+                <template #content>
+                  <!-- Profile, logout, etc. -->
+                </template>
+              </Dropdown>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <!-- Page Heading -->
+      <header v-if="$slots.header" class="bg-white dark:bg-gray-800 shadow">
+        <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+          <slot name="header" />
+        </div>
+      </header>
+
+      <!-- Page Content -->
+      <main>
+        <slot />
+      </main>
+    </div>
+  </div>
+</template>
+```
+
+## Key Components
+
+### DataTable Component
+
+**Location**: `resources/js/Components/Datatables/DataTable.vue`
+
+Wraps the `@dcorrea-estrav/vue3-datatables` package:
+
+```vue
+<script setup>
+import { ref } from 'vue';
+import DataTable from '@dcorrea-estrav/vue3-datatables';
+
+const props = defineProps({
+  columns: Array,
+  data: Array,
+  options: Object,
+});
+
+const tableOptions = ref({
+  pageSize: 10,
+  pageSizeOptions: [10, 25, 50, 100],
+  searchable: true,
+  sortable: true,
+  ...props.options,
+});
+</script>
+
+<template>
+  <DataTable
+    :columns="columns"
+    :data="data"
+    :options="tableOptions"
+    class="w-full"
+  />
+</template>
+```
+
+### Power BI Report Embed
+
+**Location**: `resources/js/Pages/Report/View.vue`
+
+Embeds Power BI reports using the JavaScript SDK:
+
+```vue
+<script setup>
+import { onMounted, ref } from 'vue';
+import * as pbi from 'powerbi-client';
+import AppLayout from '@/Layouts/AppLayout.vue';
+
+const props = defineProps({
+  report: Object,
+});
+
+const reportContainer = ref(null);
+
+onMounted(() => {
+  const powerbi = new pbi.service.Service(
+    pbi.factories.hpmFactory,
+    pbi.factories.wpmpFactory,
+    pbi.factories.routerFactory
+  );
+
+  const config = {
+    type: 'report',
+    tokenType: pbi.models.TokenType.Embed,
+    accessToken: props.report.token,
+    embedUrl: props.report.embedUrl,
+    id: props.report.report_id,
+    settings: {
+      panes: {
+        filters: {
+          expanded: false,
+          visible: true,
+        },
+      },
+      background: pbi.models.BackgroundType.Transparent,
+    },
+  };
+
+  // Apply filters if configured
+  if (props.report.filters && props.report.filters.length > 0) {
+    config.filters = props.report.filters.map(filter => ({
+      $schema: 'http://powerbi.com/product/schema#basic',
+      target: {
+        table: filter.table,
+        column: filter.column,
+      },
+      operator: filter.operator,
+      values: JSON.parse(filter.values),
+    }));
+  }
+
+  powerbi.embed(reportContainer.value, config);
+});
+</script>
+
+<template>
+  <AppLayout title="View Report">
+    <template #header>
+      <h2 class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">
+        {{ report.name }}
+      </h2>
+    </template>
+
+    <div class="py-12">
+      <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+        <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-xl sm:rounded-lg">
+          <div ref="reportContainer" class="w-full" style="height: 800px;"></div>
+        </div>
+      </div>
+    </div>
+  </AppLayout>
+</template>
+```
+
+## Inertia.js Pages
+
+### Example: User Management
+
+**Location**: `resources/js/Pages/User/Index.vue`
+
+```vue
+<script setup>
+import { ref } from 'vue';
+import { router } from '@inertiajs/vue3';
+import AppLayout from '@/Layouts/AppLayout.vue';
+import DataTable from '@/Components/Datatables/DataTable.vue';
+import PrimaryButton from '@/Components/PrimaryButton.vue';
+
+const props = defineProps({
+  users: Array,
+});
+
+const columns = [
+  { key: 'id', label: 'ID', sortable: true },
+  { key: 'name', label: 'Name', sortable: true },
+  { key: 'email', label: 'Email', sortable: true },
+  { key: 'roles', label: 'Roles', render: (row) => row.roles.map(r => r.name).join(', ') },
+  { key: 'actions', label: 'Actions' },
+];
+
+const deleteUser = (userId) => {
+  if (confirm('Are you sure you want to delete this user?')) {
+    router.delete(route('users.destroy', userId));
+  }
+};
+</script>
+
+<template>
+  <AppLayout title="Users">
+    <template #header>
+      <div class="flex justify-between items-center">
+        <h2 class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">
+          Users
+        </h2>
+        <PrimaryButton @click="router.visit(route('users.create'))">
+          Create User
+        </PrimaryButton>
+      </div>
+    </template>
+
+    <div class="py-12">
+      <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+        <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-xl sm:rounded-lg p-6">
+          <DataTable :columns="columns" :data="users">
+            <template #cell-actions="{ row }">
+              <button @click="router.visit(route('users.edit', row.id))" class="text-blue-600 hover:text-blue-900">
+                Edit
+              </button>
+              <button @click="deleteUser(row.id)" class="ml-4 text-red-600 hover:text-red-900">
+                Delete
+              </button>
+            </template>
+          </DataTable>
+        </div>
+      </div>
+    </div>
+  </AppLayout>
+</template>
+```
+
+## Styling with Tailwind CSS
+
+### Configuration
+
+**File**: `tailwind.config.js`
+
+```javascript
+import defaultTheme from 'tailwindcss/defaultTheme';
+import forms from '@tailwindcss/forms';
+import typography from '@tailwindcss/typography';
+
+export default {
+    content: [
+        './vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php',
+        './vendor/laravel/jetstream/**/*.blade.php',
+        './storage/framework/views/*.php',
+        './resources/views/**/*.blade.php',
+        './resources/js/**/*.vue',
+    ],
+    theme: {
+        extend: {
+            fontFamily: {
+                sans: ['Figtree', ...defaultTheme.fontFamily.sans],
+            },
+            colors: {
+                primary: '#0078D4',
+            },
+        },
+    },
+    plugins: [forms, typography],
+};
+```
+
+### Dark Mode Support
+
+GB App supports dark mode using Tailwind's class-based dark mode:
+
+```vue
+<div class="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+  <!-- Content -->
+</div>
+```
+
+## Form Validation
+
+### Vuelidate Integration
+
+```vue
+<script setup>
+import { useVuelidate } from '@vuelidate/core';
+import { required, email, minLength } from '@vuelidate/validators';
+import { reactive } from 'vue';
+
+const form = reactive({
+  name: '',
+  email: '',
+  password: '',
+});
+
+const rules = {
+  name: { required },
+  email: { required, email },
+  password: { required, minLength: minLength(8) },
+};
+
+const v$ = useVuelidate(rules, form);
+
+const submit = async () => {
+  const isValid = await v$.value.$validate();
+  if (isValid) {
+    router.post(route('users.store'), form);
+  }
+};
+</script>
+```
+
+## State Management
+
+GB App uses Inertia.js shared data for global state instead of Vuex/Pinia:
+
+```php
+// In HandleInertiaRequests middleware
+public function share(Request $request): array
+{
+    return array_merge(parent::share($request), [
+        'auth' => [
+            'user' => $request->user() ? [
+                'id' => $request->user()->id,
+                'name' => $request->user()->name,
+                'email' => $request->user()->email,
+                'permissions' => $request->user()->getAllPermissions()->pluck('name'),
+                'roles' => $request->user()->roles->pluck('name'),
+            ] : null,
+        ],
+        'flash' => [
+            'banner' => session('banner'),
+            'bannerStyle' => session('bannerStyle'),
+        ],
+    ]);
+}
+```
+
+Access in any component:
+
+```vue
+<script setup>
+import { usePage } from '@inertiajs/vue3';
+
+const page = usePage();
+const user = page.props.auth.user;
+const hasPermission = (permission) => user.permissions.includes(permission);
+</script>
+```
+
+## Build Configuration
+
+### Vite Config
+
+**File**: `vite.config.js`
+
+```javascript
+import { defineConfig } from 'vite';
+import laravel from 'laravel-vite-plugin';
+import vue from '@vitejs/plugin-vue';
+
+export default defineConfig({
+    plugins: [
+        laravel({
+            input: 'resources/js/app.js',
+            refresh: true,
+        }),
+        vue({
+            template: {
+                transformAssetUrls: {
+                    base: null,
+                    includeAbsolute: false,
+                },
+            },
+        }),
+    ],
+});
+```
+
+## Development Workflow
+
+<Steps>
+  <Step title="Start Vite dev server">
+    ```bash
+    npm run dev
+    ```
+    
+    Vite watches for file changes and hot-reloads the browser.
+  </Step>
+
+  <Step title="Make changes to Vue components">
+    Edit files in `resources/js/Pages/` or `resources/js/Components/`
+  </Step>
+
+  <Step title="Changes reflect immediately">
+    Vite's HMR updates the browser without full page reload
+  </Step>
+
+  <Step title="Build for production">
+    ```bash
+    npm run build
+    ```
+    
+    Creates optimized bundles in `public/build/`
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture Overview" href="/development/architecture">
+    Understand the full system architecture
+  </Card>
+  <Card title="Database Schema" href="/development/database-schema">
+    Learn about the database structure
+  </Card>
+  <Card title="Development Setup" href="/development/setup">
+    Set up your local environment
+  </Card>
+  <Card title="Coding Standards" href="/development/coding-standards">
+    Follow project conventions
+  </Card>
+</CardGroup>

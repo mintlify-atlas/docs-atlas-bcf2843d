@@ -1,0 +1,462 @@
+---
+title: 'User Management'
+description: 'User CRUD operations, report assignments, and filter management'
+---
+
+## User Management Overview
+
+Manage users, assign reports, configure filters, and manage technical user relationships.
+
+## List Users
+
+Retrieve all users with their reports and roles.
+
+```bash
+GET /users
+```
+
+### Authentication & Permissions
+
+<ParamField header="Authorization" type="string" required>
+  Valid session or Sanctum token
+</ParamField>
+
+Requires one of:
+- `super-admin` role
+- `user.index` permission
+- `user.create` permission
+- `user.update` permission
+- `user.destroy` permission
+
+### Response
+
+Returns Inertia view with:
+
+<ResponseField name="users" type="array">
+  Array of users with reports and roles relationships
+</ResponseField>
+
+<ResponseField name="roles" type="array">
+  All available roles
+</ResponseField>
+
+<ResponseField name="reports" type="array">
+  All available reports
+</ResponseField>
+
+<ResponseField name="technicalUsers" type="array">
+  Users with 'tecnico' or 'técnico' role
+</ResponseField>
+
+### User Object Structure
+
+<ResponseField name="id" type="integer">
+  User ID
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Full name
+</ResponseField>
+
+<ResponseField name="username" type="string">
+  Username for authentication
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  Email address
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  User type (admin, designer, customer, etc.)
+</ResponseField>
+
+<ResponseField name="cedula" type="string" optional>
+  National ID number
+</ResponseField>
+
+<ResponseField name="codigo_vendedor" type="string" optional>
+  Sales representative code
+</ResponseField>
+
+<ResponseField name="is_ldap_user" type="boolean">
+  LDAP authentication status
+</ResponseField>
+
+<ResponseField name="reports" type="array">
+  Assigned reports
+</ResponseField>
+
+<ResponseField name="roles" type="array">
+  Assigned roles
+</ResponseField>
+
+## Get User Details
+
+Retrieve detailed information about a specific user.
+
+```bash
+GET /users/{id}/show
+```
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  User ID
+</ParamField>
+
+### Response
+
+Returns Inertia view with:
+
+<ResponseField name="user" type="object">
+  User with roles, permissions, reports, and technical users
+</ResponseField>
+
+<ResponseField name="roles" type="array">
+  All available roles
+</ResponseField>
+
+<ResponseField name="reports" type="array">
+  All available reports
+</ResponseField>
+
+<ResponseField name="filters" type="array">
+  All available report filters
+</ResponseField>
+
+<ResponseField name="technicalUsers" type="array">
+  Available technical users
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET https://your-domain.com/users/5/show \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+## Create User
+
+Create a new user with roles and report assignments.
+
+```bash
+POST /users
+```
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  User's full name
+</ParamField>
+
+<ParamField body="username" type="string" required>
+  Unique username
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  Valid email address
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User password (will be hashed)
+</ParamField>
+
+<ParamField body="type" type="string" required>
+  User type
+</ParamField>
+
+<ParamField body="cedula" type="string" optional>
+  National ID number
+</ParamField>
+
+<ParamField body="codigo_vendedor" type="string" optional>
+  Sales representative code
+</ParamField>
+
+<ParamField body="roles" type="array" required>
+  Array of role names to assign
+</ParamField>
+
+<ParamField body="reports" type="array">
+  Array of report IDs to assign
+</ParamField>
+
+<ParamField body="technical_users" type="array" optional>
+  Array of technical user IDs (for 'asesor' role)
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/users \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Jane Smith",
+    "username": "jsmith",
+    "email": "jane.smith@example.com",
+    "password": "SecurePassword123!",
+    "type": "admin",
+    "cedula": "9876543210",
+    "codigo_vendedor": "V002",
+    "roles": ["asesor"],
+    "reports": [1, 2, 3],
+    "technical_users": [10, 11]
+  }'
+```
+
+### Response
+
+Returns array of all users with relationships (200 status).
+
+### Technical Users (Asesor Role)
+
+When a user is assigned the "asesor" role:
+- The `technical_users` array is synchronized in the `advisor_technical_user` pivot table
+- Only users with 'tecnico' or 'técnico' roles can be assigned
+- Invalid technical user IDs are filtered out
+
+## Update User
+
+Update an existing user.
+
+```bash
+PUT /users/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  User ID to update
+</ParamField>
+
+### Request Body
+
+Same fields as create (all optional except roles):
+
+<ParamField body="name" type="string">
+  Updated name
+</ParamField>
+
+<ParamField body="username" type="string">
+  Updated username
+</ParamField>
+
+<ParamField body="email" type="string">
+  Updated email
+</ParamField>
+
+<ParamField body="type" type="string">
+  Updated type
+</ParamField>
+
+<ParamField body="cedula" type="string">
+  Updated cedula
+</ParamField>
+
+<ParamField body="codigo_vendedor" type="string">
+  Updated sales code
+</ParamField>
+
+<ParamField body="roles" type="array" required>
+  Updated roles array
+</ParamField>
+
+<ParamField body="change_password" type="boolean">
+  Set to true to update password
+</ParamField>
+
+<ParamField body="password" type="string">
+  New password (required if change_password=true)
+</ParamField>
+
+<ParamField body="technical_users" type="array">
+  Updated technical users (for asesor role)
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X PUT https://your-domain.com/users/5 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Jane Smith Updated",
+    "roles": ["asesor", "supervisor"],
+    "change_password": true,
+    "password": "NewSecurePassword456!"
+  }'
+```
+
+### Response
+
+Returns array of all users with updates applied (200 status).
+
+## Delete User
+
+Delete a user from the system.
+
+```bash
+DELETE /users/{id}
+```
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  User ID to delete
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X DELETE https://your-domain.com/users/5 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+### Response
+
+Returns array of remaining users (200 status).
+
+## Update User Reports
+
+Update report assignments for a user.
+
+```bash
+POST /users/update-reports
+```
+
+### Request Body
+
+<ParamField body="user_id" type="integer" required>
+  User ID
+</ParamField>
+
+<ParamField body="reports" type="array" required>
+  Array of report IDs to assign
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/users/update-reports \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": 5,
+    "reports": [1, 2, 3, 4]
+  }'
+```
+
+### Response
+
+```json
+"success"
+```
+
+## Update User Report Filters
+
+Update filter assignments for a user's report.
+
+```bash
+POST /users/report/update-filters
+```
+
+### Request Body
+
+<ParamField body="user_id" type="integer" required>
+  User ID
+</ParamField>
+
+<ParamField body="report_id" type="integer" required>
+  Report ID
+</ParamField>
+
+<ParamField body="filters" type="array" required>
+  Array of filter IDs to assign to this user-report combination
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/users/report/update-filters \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": 5,
+    "report_id": 2,
+    "filters": [1, 3, 5]
+  }'
+```
+
+### Response
+
+```json
+"success"
+```
+
+## Set Default Report View
+
+Set whether a report should be shown by default for a user.
+
+```bash
+POST /users/report/set-default
+```
+
+### Request Body
+
+<ParamField body="user_id" type="integer" required>
+  User ID
+</ParamField>
+
+<ParamField body="report_id" type="integer" required>
+  Report ID
+</ParamField>
+
+<ParamField body="state" type="boolean" required>
+  Show state (true/false)
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/users/report/set-default \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": 5,
+    "report_id": 2,
+    "state": true
+  }'
+```
+
+### Response
+
+```json
+"success"
+```
+
+## Error Responses
+
+### 500 Internal Server Error
+
+```json
+{
+  "message": "Error details from exception"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "message": "This action is unauthorized."
+}
+```
+
+## Implementation Notes
+
+**Source:** `app/Http/Controllers/UserController.php`
+
+All user operations use database transactions for data integrity.

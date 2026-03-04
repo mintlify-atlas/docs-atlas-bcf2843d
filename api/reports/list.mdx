@@ -1,0 +1,219 @@
+---
+title: 'List Reports'
+description: 'GET /reports - Retrieve all Power BI reports for authenticated user'
+---
+
+## Get Reports
+
+Retrieve all Power BI reports accessible to the authenticated user.
+
+```bash
+GET /reports
+```
+
+### Authentication
+
+<ParamField header="Authorization" type="string" required>
+  Valid session or Sanctum token
+</ParamField>
+
+### Permissions
+
+Requires one of the following:
+- `super-admin` role
+- `report.create` permission
+- `report.edit` permission
+- `report.destroy` permission
+
+### Response Behavior
+
+<Accordion title="For Super Admins">
+  Returns all reports in the system with relationships:
+  - Report creator (user)
+  - Associated filters
+</Accordion>
+
+<Accordion title="For Regular Users">
+  Returns only reports assigned to the authenticated user
+</Accordion>
+
+### Response Fields
+
+<ResponseField name="id" type="integer">
+  Report database ID
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Report display name
+</ResponseField>
+
+<ResponseField name="group_id" type="string">
+  Power BI workspace/group ID
+</ResponseField>
+
+<ResponseField name="report_id" type="string">
+  Power BI report ID
+</ResponseField>
+
+<ResponseField name="dataset_id" type="string">
+  Power BI dataset ID
+</ResponseField>
+
+<ResponseField name="access_level" type="string">
+  Access level (typically "View")
+</ResponseField>
+
+<ResponseField name="token" type="string" optional>
+  Cached Power BI embed token
+</ResponseField>
+
+<ResponseField name="expiration_date" type="datetime" optional>
+  Token expiration timestamp
+</ResponseField>
+
+<ResponseField name="user_id" type="integer">
+  ID of user who created the report
+</ResponseField>
+
+<ResponseField name="filter_array" type="string">
+  JSON-encoded array of Power BI filters
+</ResponseField>
+
+<ResponseField name="created_at" type="datetime">
+  Report creation timestamp
+</ResponseField>
+
+<ResponseField name="updated_at" type="datetime">
+  Last update timestamp
+</ResponseField>
+
+<ResponseField name="created_by" type="object">
+  User object who created the report
+</ResponseField>
+
+<ResponseField name="filters" type="array">
+  Array of filter objects associated with this report
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET https://your-domain.com/reports \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+### Example Response
+
+```json
+[
+  {
+    "id": 1,
+    "name": "Sales Dashboard",
+    "group_id": "f089354e-8366-4e18-aea3-4cb4a3a50b48",
+    "report_id": "5b218778-e7a5-4d73-8187-f10824047715",
+    "dataset_id": "cfafbeb1-8037-4d0c-896e-a46fb27ff229",
+    "access_level": "View",
+    "token": "H4sIAAAAAAAEAB2RxQ...",
+    "expiration_date": "2026-03-04 10:30:00",
+    "user_id": 1,
+    "filter_array": "[{\"$schema\":\"http://powerbi.com/product/schema#basic\",\"target\":{\"table\":\"Sales\",\"column\":\"Region\"},\"operator\":\"In\",\"values\":[\"North\",\"South\"]}]",
+    "created_at": "2026-01-15 14:30:00",
+    "updated_at": "2026-03-04 09:15:00",
+    "created_by": {
+      "id": 1,
+      "name": "John Doe",
+      "email": "john.doe@example.com"
+    },
+    "filters": [
+      {
+        "id": 1,
+        "name": "Region Filter",
+        "table": "Sales",
+        "column": "Region",
+        "operator": "In",
+        "values": "North,South",
+        "parse_values": ["North", "South"]
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "name": "Financial Report",
+    "group_id": "f089354e-8366-4e18-aea3-4cb4a3a50b48",
+    "report_id": "7d329888-f9b6-5e84-9298-g21935158826",
+    "dataset_id": "dfbfcfc2-9148-5e1d-997f-b57gc38gg330",
+    "access_level": "View",
+    "token": null,
+    "expiration_date": null,
+    "user_id": 1,
+    "filter_array": "[]",
+    "created_at": "2026-02-10 11:20:00",
+    "updated_at": "2026-02-10 11:20:00",
+    "created_by": {
+      "id": 1,
+      "name": "John Doe",
+      "email": "john.doe@example.com"
+    },
+    "filters": []
+  }
+]
+```
+
+### Filter Array Structure
+
+The `filter_array` field contains Power BI filter definitions:
+
+```json
+[
+  {
+    "$schema": "http://powerbi.com/product/schema#basic",
+    "target": {
+      "table": "TableName",
+      "column": "ColumnName"
+    },
+    "operator": "In",
+    "values": ["Value1", "Value2"]
+  }
+]
+```
+
+### Supported Filter Operators
+
+- `In` - Match any value in array
+- `NotIn` - Exclude values in array
+- `Equals` - Exact match (string)
+- `Contains` - Substring match
+- `GreaterThan` - Numeric comparison
+- `LessThan` - Numeric comparison
+
+## Error Responses
+
+### 403 Forbidden
+
+User lacks required permissions:
+
+```json
+{
+  "message": "This action is unauthorized."
+}
+```
+
+### 401 Unauthorized
+
+Missing or invalid authentication:
+
+```json
+{
+  "message": "Unauthenticated."
+}
+```
+
+## Implementation Notes
+
+**Source:** `app/Http/Controllers/ReportController.php:38`
+
+- Super admins see all reports via `Report::all()`
+- Regular users see only their assigned reports via `auth()->user()->reports`
+- Reports are eager-loaded with `user`, `created_by`, and `filters` relationships for admins
+- The route uses middleware: `auth:sanctum`, `verified`, and `role_or_permission`

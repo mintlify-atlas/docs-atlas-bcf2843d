@@ -1,0 +1,729 @@
+---
+title: Troubleshooting
+description: Common issues, debugging techniques, and log analysis for GB App
+---
+
+## Overview
+
+This guide covers common issues you may encounter with GB App and how to resolve them.
+
+## Application Issues
+
+### 500 Internal Server Error
+
+<Accordion title="Symptoms">
+- White screen or generic error page
+- No detailed error message
+- Application won't load
+</Accordion>
+
+<Accordion title="Diagnosis">
+
+Check Laravel logs:
+```bash
+docker compose exec app tail -100 storage/logs/laravel.log
+```
+
+Check web server logs:
+```bash
+docker compose logs nginx
+```
+
+Check PHP errors:
+```bash
+docker compose exec app tail -100 /var/log/php8.2-fpm.log
+```
+</Accordion>
+
+<Accordion title="Solutions">
+
+1. **Check file permissions**:
+```bash
+docker compose exec app chmod -R 775 storage bootstrap/cache
+docker compose exec app chown -R www-data:www-data storage bootstrap/cache
+```
+
+2. **Clear cache**:
+```bash
+docker compose exec app php artisan optimize:clear
+```
+
+3. **Check .env file exists**:
+```bash
+docker compose exec app ls -la .env
+```
+
+4. **Verify APP_KEY is set**:
+```bash
+docker compose exec app php artisan key:generate
+```
+
+5. **Check database connection**:
+```bash
+docker compose exec app php artisan tinker
+>>> DB::connection()->getPdo();
+```
+</Accordion>
+
+### Class Not Found Errors
+
+<Accordion title="Symptoms">
+```
+Class 'App\Models\User' not found
+```
+</Accordion>
+
+<Accordion title="Solutions">
+
+1. **Regenerate autoload files**:
+```bash
+docker compose exec app composer dump-autoload
+```
+
+2. **Clear compiled files**:
+```bash
+docker compose exec app php artisan clear-compiled
+```
+
+3. **Optimize autoloader**:
+```bash
+docker compose exec app composer install --optimize-autoloader
+```
+</Accordion>
+
+### CSRF Token Mismatch
+
+<Accordion title="Symptoms">
+```
+CSRF token mismatch
+419 Page Expired
+```
+</Accordion>
+
+<Accordion title="Solutions">
+
+1. **Clear browser cookies**
+
+2. **Check session configuration**:
+```bash .env
+SESSION_DRIVER=database
+SESSION_LIFETIME=120
+```
+
+3. **Verify session table exists**:
+```bash
+docker compose exec app php artisan session:table
+docker compose exec app php artisan migrate
+```
+
+4. **Check APP_URL matches current URL**:
+```bash .env
+APP_URL=http://localhost
+```
+
+5. **Clear cache**:
+```bash
+docker compose exec app php artisan config:clear
+```
+</Accordion>
+
+## Database Issues
+
+### Cannot Connect to Database
+
+<Accordion title="Symptoms">
+```
+PDOException: SQLSTATE[HY000] [2002] Connection refused
+Access denied for user
+```
+</Accordion>
+
+<Accordion title="Diagnosis">
+
+1. **Check database container is running**:
+```bash
+docker compose ps
+```
+
+2. **Test connection from app container**:
+```bash
+docker compose exec app mysql -h db -u root -ppasswordr GBapp
+```
+
+3. **Check database logs**:
+```bash
+docker compose logs db
+```
+</Accordion>
+
+<Accordion title="Solutions">
+
+1. **Verify .env database settings**:
+```bash .env
+DB_CONNECTION=mysql
+DB_HOST=db
+DB_PORT=3306
+DB_DATABASE=GBapp
+DB_USERNAME=root
+DB_PASSWORD=passwordr
+```
+
+2. **For Docker, DB_HOST must be 'db'** (service name)
+
+3. **Restart database container**:
+```bash
+docker compose restart db
+```
+
+4. **Check database exists**:
+```bash
+docker compose exec db mysql -u root -ppasswordr -e "SHOW DATABASES;"
+```
+
+5. **Create database if missing**:
+```bash
+docker compose exec db mysql -u root -ppasswordr -e "CREATE DATABASE GBapp;"
+```
+
+6. **Clear config cache**:
+```bash
+docker compose exec app php artisan config:clear
+```
+</Accordion>
+
+### Migration Errors
+
+<Accordion title="Symptoms">
+```
+SQLSTATE[42S01]: Base table or view already exists
+SQLSTATE[42S02]: Base table or view not found
+```
+</Accordion>
+
+<Accordion title="Solutions">
+
+1. **Check migration status**:
+```bash
+docker compose exec app php artisan migrate:status
+```
+
+2. **Rollback last migration**:
+```bash
+docker compose exec app php artisan migrate:rollback
+```
+
+3. **Fresh migration (destroys data)**:
+```bash
+docker compose exec app php artisan migrate:fresh --seed
+```
+
+4. **Fix specific migration**:
+Edit the problematic migration file, then:
+```bash
+docker compose exec app php artisan migrate:refresh
+```
+</Accordion>
+
+### SQL Server Connection Issues
+
+<Accordion title="Symptoms">
+```
+SQLSTATE[01000]: Adaptive Server connection failed
+SQLSTATE[08001]: Unable to complete login process
+```
+</Accordion>
+
+<Accordion title="Solutions">
+
+1. **Check SQL Server drivers installed**:
+```bash
+docker compose exec app php -m | grep sqlsrv
+```
+
+Should show:
+```
+pdo_sqlsrv
+sqlsrv
+```
+
+2. **Verify connection settings**:
+```bash .env
+DB_CONNECTION=sqlsrv
+DB_HOST=sqlserver.domain.com
+DB_PORT=1433
+DB_DATABASE=GBapp
+DB_USERNAME=sa
+DB_PASSWORD=password
+SQLSRV_ENCRYPT=true
+SQLSRV_TRUST_SERVER_CERTIFICATE=true
+```
+
+3. **Try trusting server certificate**:
+```bash .env
+SQLSRV_TRUST_SERVER_CERTIFICATE=true
+```
+
+4. **Test connection with sqlcmd**:
+```bash
+docker compose exec app sqlcmd -S sqlserver.domain.com -U sa -P password
+```
+</Accordion>
+
+## Authentication Issues
+
+### LDAP Connection Failed
+
+<Accordion title="Symptoms">
+```
+LdapRecordException: Can't contact LDAP server
+Error al conectar con Active Directory
+```
+</Accordion>
+
+<Accordion title="Diagnosis">
+
+1. **Test LDAP connection**:
+```bash
+docker compose exec app php artisan tinker
+```
+
+```php
+use LdapRecord\Container;
+$connection = Container::getDefaultConnection();
+$connection->connect();
+```
+
+2. **Check LDAP logs**:
+```bash
+docker compose exec app tail -100 storage/logs/laravel.log | grep LDAP
+```
+
+3. **Enable LDAP logging**:
+```bash .env
+LDAP_LOGGING=true
+LOG_LEVEL=debug
+```
+</Accordion>
+
+<Accordion title="Solutions">
+
+1. **Verify LDAP settings**:
+```bash .env
+LDAP_HOST=dc.domain.com
+LDAP_PORT=389
+LDAP_BASE_DN=dc=domain,dc=com
+LDAP_USERNAME=cn=bind,dc=domain,dc=com
+LDAP_PASSWORD=password
+```
+
+2. **Test with ldapsearch** (if available):
+```bash
+ldapsearch -x -H ldap://dc.domain.com -D "cn=bind,dc=domain,dc=com" -w password -b "dc=domain,dc=com"
+```
+
+3. **Check firewall allows LDAP ports**:
+- Port 389 (LDAP)
+- Port 636 (LDAPS)
+- Port 3268 (Global Catalog)
+
+4. **Try without SSL first**:
+```bash .env
+LDAP_SSL=false
+LDAP_TLS=false
+LDAP_PORT=389
+```
+
+5. **Verify bind account credentials**
+</Accordion>
+
+### User Cannot Login
+
+<Accordion title="For Local Users">
+
+1. **Check user exists**:
+```bash
+docker compose exec app php artisan tinker
+```
+
+```php
+User::where('username', 'testuser')->first();
+```
+
+2. **Check is_ldap_user flag**:
+```php
+$user = User::where('username', 'testuser')->first();
+$user->is_ldap_user; // Should be false for local users
+```
+
+3. **Reset password**:
+```php
+$user = User::where('username', 'testuser')->first();
+$user->password = bcrypt('newpassword');
+$user->save();
+```
+</Accordion>
+
+<Accordion title="For LDAP Users">
+
+1. **Verify user exists in AD**:
+```bash
+docker compose exec app php artisan tinker
+```
+
+```php
+$ldapUser = \App\Ldap\User::where('samaccountname', '=', 'testuser')->first();
+$ldapUser->getAttributes();
+```
+
+2. **Check LDAP authentication**:
+```php
+use LdapRecord\Container;
+$connection = Container::getDefaultConnection();
+$ldapUser = \App\Ldap\User::where('samaccountname', '=', 'testuser')->first();
+$connection->auth()->attempt($ldapUser->getDn(), 'password');
+```
+
+3. **Sync user manually**:
+```php
+$authenticator = new \App\Actions\Fortify\AuthenticateUserHybrid();
+// User will sync on next successful login
+```
+</Accordion>
+
+### Two-Factor Authentication Issues
+
+<Accordion title="Lost 2FA Device">
+
+1. **Disable 2FA for user**:
+```bash
+docker compose exec app php artisan tinker
+```
+
+```php
+$user = User::where('email', 'user@example.com')->first();
+$user->two_factor_secret = null;
+$user->two_factor_recovery_codes = null;
+$user->two_factor_confirmed_at = null;
+$user->save();
+```
+</Accordion>
+
+## Power BI Integration Issues
+
+### Cannot Generate Access Token
+
+<Accordion title="Symptoms">
+```
+401 Unauthorized
+Invalid client secret
+```
+</Accordion>
+
+<Accordion title="Solutions">
+
+1. **Verify Power BI credentials**:
+```bash .env
+POWERBI_CLIENT_ID=your-app-id
+POWERBI_CLIENT_SECRET=your-app-secret
+POWERBI_USERNAME=powerbi@domain.com
+POWERBI_PASSWORD=password
+POWERBI_RESOURCE=https://analysis.windows.net/powerbi/api
+```
+
+2. **Test token generation**:
+```bash
+docker compose exec app php artisan tinker
+```
+
+```php
+$trait = new class {
+    use \App\Traits\PowerBITrait;
+    public function test() {
+        return $this->getUserAccessToken();
+    }
+};
+$trait->test();
+```
+
+3. **Check Azure AD app permissions**:
+- Ensure API permissions granted
+- Verify admin consent given
+- Check client secret hasn't expired
+
+4. **Clear config cache**:
+```bash
+docker compose exec app php artisan config:clear
+```
+</Accordion>
+
+### Cannot Import Reports
+
+<Accordion title="Symptoms">
+```
+403 Forbidden
+Workspace not found
+```
+</Accordion>
+
+<Accordion title="Solutions">
+
+1. **Verify workspace ID is correct**
+
+2. **Check service principal has access**:
+- Add app to workspace as Member or Admin
+- Verify Power BI service principal enabled in tenant settings
+
+3. **Test API call**:
+```bash
+docker compose exec app php artisan tinker
+```
+
+```php
+$controller = new \App\Http\Controllers\ImportReportController();
+$request = new \Illuminate\Http\Request(['group_id' => 'workspace-id']);
+$controller->get_reports($request);
+```
+</Accordion>
+
+### Reports Won't Embed
+
+<Accordion title="Symptoms">
+- Blank iframe
+- "Unable to load report"
+- Token expired error
+</Accordion>
+
+<Accordion title="Solutions">
+
+1. **Check embed token**:
+```bash
+docker compose exec app php artisan tinker
+```
+
+```php
+$report = \App\Models\Report::first();
+echo $report->token;
+echo $report->expiration_date;
+```
+
+2. **Regenerate token**:
+```php
+$report->token = null;
+$report->expiration_date = null;
+$report->save();
+// Token will regenerate on next view
+```
+
+3. **Check browser console for errors**
+
+4. **Verify Power BI JavaScript library loaded**
+</Accordion>
+
+## Docker Issues
+
+### Container Won't Start
+
+<Accordion title="Diagnosis">
+
+```bash
+# Check container status
+docker compose ps
+
+# View logs
+docker compose logs app
+docker compose logs nginx
+docker compose logs db
+```
+</Accordion>
+
+<Accordion title="Solutions">
+
+1. **Port conflict**:
+```bash
+# Check if port is in use
+sudo netstat -tuln | grep 80
+sudo netstat -tuln | grep 3306
+
+# Change port in docker-compose.yml
+nginx:
+    ports:
+        - "8080:80"
+```
+
+2. **Build failed**:
+```bash
+# Rebuild without cache
+docker compose build --no-cache
+```
+
+3. **Permission issues**:
+```bash
+# Fix ownership
+sudo chown -R $USER:$USER .
+```
+
+4. **Disk space**:
+```bash
+# Check disk space
+df -h
+
+# Clean Docker
+docker system prune -a
+```
+</Accordion>
+
+### Permission Denied in Container
+
+<Accordion title="Solutions">
+
+```bash
+# Fix storage permissions
+docker compose exec app chmod -R 775 storage bootstrap/cache
+docker compose exec app chown -R www-data:www-data storage bootstrap/cache
+
+# If still issues, check SELinux (if enabled)
+sudo setenforce 0
+```
+</Accordion>
+
+## Performance Issues
+
+### Slow Page Load
+
+<Accordion title="Diagnosis">
+
+1. **Enable query logging**:
+```php
+DB::enableQueryLog();
+// Your code
+dd(DB::getQueryLog());
+```
+
+2. **Check debug bar** (if installed in dev)
+
+3. **Monitor server resources**:
+```bash
+docker stats gb-app-php gb-app-webserver gb-app-db
+```
+</Accordion>
+
+<Accordion title="Solutions">
+
+1. **Enable caching**:
+```bash
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+```
+
+2. **Use Redis for sessions**:
+```bash .env
+CACHE_DRIVER=redis
+SESSION_DRIVER=redis
+```
+
+3. **Optimize database queries**:
+- Add indexes
+- Use eager loading
+- Cache frequent queries
+
+4. **Enable OPcache** (see production guide)
+
+5. **Optimize Composer autoloader**:
+```bash
+composer install --optimize-autoloader --no-dev
+```
+</Accordion>
+
+### High Memory Usage
+
+<Accordion title="Solutions">
+
+1. **Increase PHP memory limit**:
+```ini php.ini
+memory_limit = 1024M
+```
+
+2. **Check for memory leaks**:
+```bash
+docker compose exec app php artisan tinker
+```
+
+```php
+echo memory_get_usage() / 1024 / 1024 . ' MB';
+```
+
+3. **Use chunking for large datasets**:
+```php
+User::chunk(100, function ($users) {
+    // Process users
+});
+```
+</Accordion>
+
+## Logging and Debugging
+
+### Enable Debug Mode (Development Only)
+
+```bash .env
+APP_DEBUG=true
+LOG_LEVEL=debug
+```
+
+<Warning>
+Never enable debug mode in production!
+</Warning>
+
+### View Logs
+
+```bash
+# Laravel logs
+docker compose exec app tail -f storage/logs/laravel.log
+
+# Nginx access logs
+docker compose logs -f nginx
+
+# PHP-FPM logs
+docker compose exec app tail -f /var/log/php8.2-fpm.log
+
+# MySQL logs
+docker compose logs -f db
+```
+
+### Query Debugging
+
+```php
+// Enable query log
+DB::enableQueryLog();
+
+// Your queries
+$users = User::where('is_ldap_user', true)->get();
+
+// View queries
+dd(DB::getQueryLog());
+
+// Log queries
+DB::listen(function($query) {
+    Log::info($query->sql);
+    Log::info($query->bindings);
+    Log::info($query->time);
+});
+```
+
+## Getting Help
+
+If you can't resolve an issue:
+
+1. **Check Laravel logs** for detailed error messages
+2. **Search Laravel documentation** at https://laravel.com/docs
+3. **Check package documentation**:
+   - Spatie Permission: https://spatie.be/docs/laravel-permission
+   - LdapRecord: https://ldaprecord.com/docs/laravel
+   - Inertia.js: https://inertiajs.com/
+4. **Review Power BI API docs** at https://learn.microsoft.com/en-us/rest/api/power-bi/
+
+## Next Steps
+
+- [Production deployment guide](/deployment/production)
+- [Docker configuration](/deployment/docker)
+- [Environment configuration](/configuration/environment)

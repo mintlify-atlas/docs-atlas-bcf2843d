@@ -1,0 +1,471 @@
+---
+title: Role-Based Access Control
+description: Role and permission management using Spatie Laravel Permission in GB App
+---
+
+## Overview
+
+GB App uses [Spatie Laravel Permission](https://spatie.be/docs/laravel-permission) to implement role-based access control (RBAC):
+
+- Create and manage roles
+- Define granular permissions
+- Assign roles to users
+- Control access to features and resources
+- Use middleware for route protection
+
+## Spatie Permission Package
+
+The package is included in the application dependencies:
+
+```json composer.json
+"require": {
+    "spatie/laravel-permission": "^5.10"
+}
+```
+
+## Database Structure
+
+Spatie Permission creates several tables:
+
+```php database/migrations/2023_06_30_140153_create_permission_tables.php
+// Tables created:
+- roles
+- permissions
+- model_has_permissions
+- model_has_roles
+- role_has_permissions
+```
+
+## User Model Setup
+
+The User model uses the `HasRoles` trait:
+
+```php app/Models/User.php
+use Spatie\Permission\Traits\HasRoles;
+
+class User extends Authenticatable
+{
+    use HasApiTokens;
+    use HasFactory;
+    use HasProfilePhoto;
+    use Notifiable;
+    use TwoFactorAuthenticatable;
+    use HasRoles;
+    use AuthenticatesWithLdap;
+
+    protected string $guard_name = 'sanctum';
+    protected $connection = 'mysql';
+
+    // Append role and permission names to JSON
+    protected $appends = [
+        'profile_photo_url',
+        'role_names',
+        'permission_names',
+    ];
+
+    public function getRoleNamesAttribute(): Collection
+    {
+        return $this->getRoleNames();
+    }
+
+    public function getPermissionNamesAttribute(): Collection
+    {
+        return $this->getAllPermissions()->pluck('name');
+    }
+}
+```
+
+## Role Controller
+
+The `RoleController` manages role operations:
+
+### List Roles
+
+```php app/Http/Controllers/RoleController.php
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
+
+public function index()
+{
+    $roles = Role::with('permissions')->get();
+    $permissions = Permission::all();
+
+    return Inertia::render('Roles', [
+        'roles' => $roles,
+        'permissions' => $permissions,
+    ]);
+}
+```
+
+### Create Role
+
+```php app/Http/Controllers/RoleController.php
+public function store(Request $request)
+{
+    DB::beginTransaction();
+    try {
+        $role = Role::create(['name' => $request->name]);
+        $role->syncPermissions($request->permissions);
+
+        DB::commit();
+
+        $roles = Role::with('permissions')->get();
+
+        return response()->json($roles, 200);
+    } catch (\Exception $e) {
+        DB::rollBack();
+
+        return response()->json($e->getMessage(), 500);
+    }
+}
+```
+
+### Update Role
+
+```php app/Http/Controllers/RoleController.php
+public function update(Request $request, $id)
+{
+    DB::beginTransaction();
+    try {
+        $role = Role::findById($id);
+        $role->name = $request->name;
+        $role->save();
+        $role->syncPermissions($request->permissions);
+
+        DB::commit();
+
+        $roles = Role::with('permissions')->get();
+
+        return response()->json($roles, 200);
+    } catch (\Exception $e) {
+        DB::rollBack();
+
+        return response()->json($e->getMessage(), 500);
+    }
+}
+```
+
+### Delete Role
+
+```php app/Http/Controllers/RoleController.php
+public function destroy($id)
+{
+    DB::beginTransaction();
+    try {
+        Role::destroy($id);
+        DB::commit();
+
+        $roles = Role::with('permissions')->get();
+
+        return response()->json($roles, 200);
+    } catch (\Exception $e) {
+        DB::rollBack();
+
+        return response()->json($e->getMessage(), 500);
+    }
+}
+```
+
+## Assigning Roles to Users
+
+### During User Creation
+
+```php app/Http/Controllers/UserController.php
+public function store(Request $request)
+{
+    $user = User::create([...]);
+    
+    // Sync roles
+    $user->syncRoles($request->roles);
+    
+    // Also handle technical user relationships based on roles
+    $selectedRoles = collect($request->roles ?? [])->map(function ($role) {
+        return mb_strtolower(trim($role));
+    });
+
+    if ($selectedRoles->contains('asesor')) {
+        // Link technical users
+        $user->technicalUsers()->sync($validTechnicalUserIds);
+    }
+}
+```
+
+### During User Update
+
+```php app/Http/Controllers/UserController.php
+public function update(Request $request, $id)
+{
+    $user = User::find($id);
+    $user->update([...]);
+    
+    // Clear all direct permissions and sync roles
+    $user->syncPermissions([]);
+    $user->syncRoles($request->roles);
+}
+```
+
+## Permissions
+
+GB App uses granular permissions for different features:
+
+### User Permissions
+- `user.index` - View users list
+- `user.create` - Create new users
+- `user.update` - Update existing users
+- `user.destroy` - Delete users
+- `user.show` - View user details
+- `update-reports` - Update user report assignments
+- `update-filters` - Update user report filters
+- `set-default` - Set default reports for users
+
+### Role Permissions
+- `role.index` - View roles list
+- `role.create` - Create new roles
+- `role.update` - Update existing roles
+- `role.destroy` - Delete roles
+
+### Report Permissions
+- `report.create` - Create reports
+- `report.edit` - Edit reports
+- `report.destroy` - Delete reports
+- `import-report` - Import reports from Power BI
+
+### Filter Permissions
+- `report.filter.index` - View report filters
+- `report.filter.create` - Create report filters
+- `report.filter.update` - Update report filters
+- `report.filter.destroy` - Delete report filters
+
+### Super Admin
+- `super-admin` - Full access to all features
+
+## Route Protection
+
+Routes are protected using middleware that checks for roles or permissions:
+
+### Role or Permission Middleware
+
+```php routes/web.php
+Route::prefix('roles')->group(function () {
+    Route::get('', [RoleController::class, 'index'])
+        ->name('roles.index')
+        ->middleware('role_or_permission:super-admin|role.index|role.create|role.update|role.destroy');
+
+    Route::post('', [RoleController::class, 'store'])
+        ->name('roles.store')
+        ->middleware('role_or_permission:super-admin|role.index|role.create');
+
+    Route::put('{id}', [RoleController::class, 'update'])
+        ->name('roles.update')
+        ->middleware('role_or_permission:super-admin|role.index|role.update');
+
+    Route::delete('{id}', [RoleController::class, 'destroy'])
+        ->name('roles.destroy')
+        ->middleware('role_or_permission:super-admin|role.index|role.destroy');
+});
+```
+
+### User Routes
+
+```php routes/web.php
+Route::prefix('users')->group(function () {
+    Route::get('', [UserController::class, 'index'])
+        ->name('users.index')
+        ->middleware('role_or_permission:super-admin|user.index|user.create|user.update|user.destroy');
+
+    Route::get('{id}/show', [UserController::class, 'show'])
+        ->name('users.show')
+        ->middleware('role_or_permission:super-admin|user.index|user.show');
+
+    Route::post('', [UserController::class, 'store'])
+        ->name('users.store')
+        ->middleware('role_or_permission:super-admin|user.index|user.create');
+
+    Route::put('{id}', [UserController::class, 'update'])
+        ->name('users.update')
+        ->middleware('role_or_permission:super-admin|user.index|user.update');
+
+    Route::delete('{id}', [UserController::class, 'destroy'])
+        ->name('users.destroy')
+        ->middleware('role_or_permission:super-admin|user.index|user.destroy');
+});
+```
+
+### Report Routes
+
+```php routes/web.php
+Route::prefix('reports')->group(function () {
+    Route::get('', [ReportController::class, 'index'])
+        ->name('report.index')
+        ->middleware('role_or_permission:super-admin|report.create|report.edit|report.destroy');
+
+    Route::post('', [ReportController::class, 'store'])
+        ->name('report.store')
+        ->middleware('role_or_permission:super-admin|report.create|report.edit');
+
+    Route::delete('{id}', [ReportController::class, 'destroy'])
+        ->name('report.destroy')
+        ->middleware('role_or_permission:super-admin|report.create|report.destroy');
+
+    Route::put('{id}', [ReportController::class, 'update'])
+        ->name('report.update')
+        ->middleware('role_or_permission:super-admin|report.create|report.edit');
+
+    Route::prefix('import')->group(function () {
+        Route::get('', [ImportReportController::class, 'index'])
+            ->name('report.import.index')
+            ->middleware('role_or_permission:super-admin|import-report');
+
+        Route::post('', [ImportReportController::class, 'store'])
+            ->name('report.import.store')
+            ->middleware('role_or_permission:super-admin|import-report');
+
+        Route::get('get-reports', [ImportReportController::class, 'get_reports'])
+            ->name('report.import.get-reports')
+            ->middleware('role_or_permission:super-admin|import-report');
+    });
+});
+```
+
+## Checking Permissions in Controllers
+
+### Check if User Can Perform Action
+
+```php
+if (auth()->user()->can('super-admin')) {
+    // Full access
+    $reports = Report::all();
+} else {
+    // Limited access
+    $reports = auth()->user()->reports;
+}
+```
+
+### Check for Specific Permission
+
+```php
+if (auth()->user()->hasPermissionTo('report.create')) {
+    // User can create reports
+}
+```
+
+### Check for Role
+
+```php
+if (auth()->user()->hasRole('super-admin')) {
+    // User is super admin
+}
+```
+
+## Frontend Permission Checks
+
+Permissions and roles are included in the user data sent to the frontend:
+
+```php
+protected $appends = [
+    'profile_photo_url',
+    'role_names',
+    'permission_names',
+];
+```
+
+This allows Vue components to conditionally show/hide UI elements based on permissions.
+
+## Common Roles
+
+GB App typically uses these roles:
+
+### Super Admin
+- Full access to all features
+- Can manage users, roles, and permissions
+- Can view and manage all reports
+
+### Asesor (Advisor)
+- Can view assigned reports
+- Has associated technical users
+- Limited administrative access
+
+### Técnico (Technical User)
+- Provides technical support
+- Can be assigned to advisors
+- Specific report access
+
+### Custom Roles
+- Organizations can create custom roles
+- Each role can have specific permission combinations
+- Roles are assigned during user creation/update
+
+## Best Practices
+
+<Steps>
+
+<Step title="Use Granular Permissions">
+Create specific permissions for each action rather than broad permissions:
+- ✅ `report.create`, `report.edit`, `report.destroy`
+- ❌ `report.manage`
+</Step>
+
+<Step title="Super Admin Override">
+Always check for `super-admin` role first in controllers:
+```php
+if (auth()->user()->can('super-admin')) {
+    // Grant access
+}
+```
+</Step>
+
+<Step title="Sync Permissions">
+Use `syncPermissions()` and `syncRoles()` to avoid orphaned relationships:
+```php
+$user->syncRoles($request->roles);
+```
+</Step>
+
+<Step title="Clear Direct Permissions">
+When updating users, clear direct permissions before syncing roles:
+```php
+$user->syncPermissions([]);
+$user->syncRoles($request->roles);
+```
+</Step>
+
+<Step title="Cache Permissions">
+Spatie Permission caches permissions. Clear cache after changes:
+```bash
+php artisan permission:cache-reset
+```
+</Step>
+
+</Steps>
+
+<Warning>
+Be careful when deleting roles that are assigned to users. Consider reassigning users to different roles first.
+</Warning>
+
+## Routes
+
+```php routes/web.php
+Route::prefix('roles')->group(function () {
+    Route::get('', [RoleController::class, 'index'])
+        ->name('roles.index')
+        ->middleware('role_or_permission:super-admin|role.index|role.create|role.update|role.destroy');
+
+    Route::post('', [RoleController::class, 'store'])
+        ->name('roles.store')
+        ->middleware('role_or_permission:super-admin|role.index|role.create');
+
+    Route::put('{id}', [RoleController::class, 'update'])
+        ->name('roles.update')
+        ->middleware('role_or_permission:super-admin|role.index|role.update');
+
+    Route::delete('{id}', [RoleController::class, 'destroy'])
+        ->name('roles.destroy')
+        ->middleware('role_or_permission:super-admin|role.index|role.destroy');
+});
+```
+
+## Next Steps
+
+- [Create and manage users](/features/user-management)
+- [Set up authentication](/features/authentication)
+- [Assign reports to users](/features/report-management)

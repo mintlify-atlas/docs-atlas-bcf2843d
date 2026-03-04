@@ -1,0 +1,292 @@
+---
+title: Dashboard
+description: Main dashboard interface displaying embedded Power BI reports with automatic token refresh and user-specific report filtering
+---
+
+## Overview
+
+The Dashboard module serves as the main landing page for authenticated users, displaying Power BI reports embedded directly in the application. It handles authentication tokens, report filtering, and provides a tabbed interface for multiple reports.
+
+**Controller:** `DashboardController` (app/Http/Controllers/DashboardController.php:11)  
+**Vue Component:** `resources/js/Pages/Dashboard.vue`  
+**Trait:** `PowerBITrait` (app/Traits/PowerBITrait.php)
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Embedded Power BI" icon="chart-line">
+    Seamlessly embed Power BI reports with automatic token management
+  </Card>
+  <Card title="User-Specific Reports" icon="user-lock">
+    Display only reports assigned to the authenticated user
+  </Card>
+  <Card title="Auto Token Refresh" icon="rotate">
+    Automatically refresh expired Power BI access tokens
+  </Card>
+  <Card title="Tabbed Interface" icon="folder-open">
+    Organize multiple reports in an intuitive tabbed layout
+  </Card>
+</CardGroup>
+
+## Dashboard Interface
+
+The dashboard provides a clean, organized view of all assigned Power BI reports:
+
+### Tabbed Navigation
+- Each report appears as a separate tab
+- Active tab displays the embedded report
+- Tab titles show report names
+- First report is selected by default
+
+### Empty State
+If no reports are assigned, displays a welcome component instead of tabs.
+
+**Vue Implementation:** Dashboard.vue:12-16
+
+## API Endpoint
+
+### View Dashboard
+
+```http
+GET /dashboard
+```
+
+Returns the dashboard page with user's assigned reports.
+
+**Authentication Required:** Yes (`auth:sanctum` middleware)  
+**Email Verification Required:** Yes (`verified` middleware)
+
+**Implementation:** DashboardController.php:20-41
+
+## Report Loading Process
+
+<Steps>
+  <Step title="Authenticate User">
+    Get Power BI access token using user credentials via `getUserAccessToken()` method.
+  </Step>
+  <Step title="Load User Reports">
+    Query reports assigned to the user where `show = true` in pivot table.
+  </Step>
+  <Step title="Check Token Validity">
+    For each report, check if embed token is null or expired.
+  </Step>
+  <Step title="Refresh Tokens">
+    If token is expired, request new embed token from Power BI API using `getReportAccessToken()`.
+  </Step>
+  <Step title="Build Embed URL">
+    Construct Power BI embed URL: `https://app.powerbi.com/reportEmbed?reportId={reportId}&groupId={groupId}`
+  </Step>
+  <Step title="Render Reports">
+    Pass report data with tokens and URLs to the Vue component for rendering.
+  </Step>
+</Steps>
+
+## Report Data Structure
+
+Each report object passed to the frontend includes:
+
+```javascript
+{
+  id: 1,
+  name: "Sales Dashboard",
+  reportId: "abc123-def456-...",
+  groupId: "xyz789-uvw012-...",
+  token: "H4sIAAAAAAAA...",  // Embed token
+  expiration_date: "2026-03-04T15:30:00",
+  userAccessToken: "eyJ0eXAiOiJKV1...",  // User access token
+  embedUrl: "https://app.powerbi.com/reportEmbed?reportId=...&groupId=...",
+  access_level: "View",
+  dataset_id: "dataset123"
+}
+```
+
+## Token Management
+
+The dashboard implements automatic token refresh to ensure uninterrupted report access:
+
+### Token Validation
+
+```php
+if ($row->token === null || Carbon::now() >= $row->expiration_date) {
+    $token = $this->getReportAccessToken($userAccessToken, $row);
+    $row->token = $token->token;
+    $row->expiration_date = $token->expiration;
+    $row->save();
+}
+```
+
+**Logic:**
+1. Check if report has no token OR token is expired
+2. Request new embed token from Power BI API
+3. Update report record with new token and expiration
+4. Continue rendering
+
+**Implementation:** DashboardController.php:26-30
+
+### Power BI Trait Methods
+
+The `PowerBITrait` provides reusable methods for Power BI integration:
+
+- `getUserAccessToken()`: Authenticate with Power BI service and get user-level token
+- `getReportAccessToken($userToken, $report)`: Generate embed token for specific report
+- Token caching and refresh logic
+
+## Report Assignment
+
+Reports are assigned to users through the `user_reports` pivot table:
+
+```php
+$reports = auth()->user()->reports()->wherePivot('show', true)->get()
+```
+
+### Pivot Table Columns
+- `user_id`: Foreign key to users table
+- `report_id`: Foreign key to reports table  
+- `show`: Boolean flag controlling dashboard visibility
+
+**Note:** Even if a user has access to a report, it only appears on the dashboard if `show = true`.
+
+## Report Viewer Component
+
+The dashboard uses a `ReportViewer` component to render embedded Power BI reports:
+
+```vue
+<report-viewer :report="report"/>
+```
+
+This component:
+- Embeds Power BI JavaScript SDK
+- Handles report initialization
+- Manages report interactions
+- Applies user-specific filters
+
+**Component Location:** resources/js/Components/ReportViewer.vue
+
+## User-Specific Filtering
+
+Reports can have user-specific filters applied through the `Report` model's `filter_array` attribute:
+
+```php
+public function getFilterArrayAttribute(): bool|string
+{
+    $filters = $this->filters->toArray();
+    $filters = collect($filters);
+    
+    $filters = $filters->map(function ($row) {
+        return [
+            '$schema' => 'http://powerbi.com/product/schema#basic',
+            'target' => [
+                'table' => $row['table'],
+                'column' => $row['column'],
+            ],
+            'operator' => $row['operator'],
+            'values' => $row['parse_values'],
+        ];
+    });
+    
+    return json_encode($filters);
+}
+```
+
+**Implementation:** Report.php:68-86
+
+Filters are automatically applied when the report loads, ensuring users only see relevant data.
+
+## Route Configuration
+
+Dashboard route in routes/web.php:41-42:
+
+```php
+Route::get('dashboard', [DashboardController::class, 'index'])
+    ->name('dashboard');
+```
+
+**Middleware Group:** `auth:sanctum`, `auth_session`, `verified`
+
+## Error Handling
+
+The dashboard gracefully handles common scenarios:
+
+### No Reports Assigned
+Displays welcome component instead of empty tab bar.
+
+### Token Refresh Failure
+If Power BI API fails to generate embed token:
+- Error is caught in `getReportAccessToken()` method
+- Report may fail to load
+- User should contact administrator
+
+### Expired User Token
+If user access token expires:
+- `getUserAccessToken()` automatically requests new token
+- Process is transparent to user
+
+## Performance Considerations
+
+<Note>
+**Token Caching:** Embed tokens are cached in the database (`reports.token`) to minimize API calls to Power BI. Tokens are only refreshed when expired.
+</Note>
+
+<Info>
+**Lazy Loading:** Reports are loaded on-demand when tabs are clicked, reducing initial page load time for users with many reports.
+</Info>
+
+## Related Modules
+
+<CardGroup cols={2}>
+  <Card title="Reports" icon="file-chart-column">
+    Manage Power BI report configurations and assignments
+  </Card>
+  <Card title="Users" icon="users">
+    Assign reports to users and control dashboard visibility
+  </Card>
+  <Card title="Report Filters" icon="filter">
+    Configure user-specific report filters
+  </Card>
+</CardGroup>
+
+## Customization
+
+The dashboard interface can be customized:
+
+### Tab Variant
+Current implementation uses `variant="underline"` for tabs. Can be changed to:
+- `pills`
+- `default`
+- `full-width`
+
+### Default Active Tab
+First report is selected by default:
+
+```javascript
+mounted() {
+    if (this.reports.length > 0){
+        this.activeTab = this.reports[0].id
+    }
+}
+```
+
+**Implementation:** Dashboard.vue:50-52
+
+## Usage Example
+
+<Steps>
+  <Step title="User Login">
+    User authenticates and email is verified.
+  </Step>
+  <Step title="Navigate to Dashboard">
+    User is redirected to `/dashboard` after login.
+  </Step>
+  <Step title="Load Reports">
+    System loads all reports where user has access and `show = true`.
+  </Step>
+  <Step title="Refresh Tokens">
+    Expired embed tokens are automatically refreshed from Power BI.
+  </Step>
+  <Step title="Display Reports">
+    Reports appear as tabs with the first report active.
+  </Step>
+  <Step title="Switch Reports">
+    User clicks tabs to view different reports.
+  </Step>
+</Steps>

@@ -1,0 +1,513 @@
+---
+title: Report Filter Management
+description: Create and manage Power BI report filters with table/column targeting and operator configuration
+---
+
+## Overview
+
+The Report Filter Management module allows administrators to create reusable filter definitions that can be applied to Power BI reports on a per-user basis. Filters control what data users can see when viewing reports.
+
+**Controller:** `ReportFilterController` (app/Http/Controllers/ReportFilterController.php:12)  
+**Model:** `ReportFilter` (app/Models/ReportFilter.php:8)  
+**Vue Component:** `resources/js/Pages/Report/Filter.vue`
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Filter Definition" icon="filter">
+    Define filters by table, column, operator, and values
+  </Card>
+  <Card title="Reusable Filters" icon="recycle">
+    Create filters once, apply to multiple users and reports
+  </Card>
+  <Card title="Multiple Operators" icon="code-compare">
+    Support for In, Equals, Contains, and comparison operators
+  </Card>
+  <Card title="Value Parsing" icon="brackets-curly">
+    Automatic value parsing for single and multi-value filters
+  </Card>
+</CardGroup>
+
+## Data Model
+
+The `ReportFilter` model defines filter configurations:
+
+```php
+protected $fillable = [
+    'name',      // Display name for the filter
+    'table',     // Target table name in Power BI dataset
+    'column',    // Target column name
+    'operator',  // Filter operator (In, Equals, Contains, etc.)
+    'values',    // Comma-separated values or single value
+];
+```
+
+### Value Parsing
+
+The model includes a computed attribute that parses values based on operator:
+
+```php
+public function getParseValuesAttribute(): array|string
+{
+    return $this->operator === 'In' 
+        ? explode(',', $this->values) 
+        : strtolower($this->values);
+}
+```
+
+**Logic:**
+- If operator is `In`: Split comma-separated string into array
+- Otherwise: Return lowercase string value
+
+**Implementation:** ReportFilter.php:34-37
+
+## Filter Operators
+
+Supported Power BI filter operators:
+
+### Membership Operators
+- **In**: Value is in the list (requires array of values)
+- **NotIn**: Value is not in the list (requires array of values)
+
+### Equality Operators
+- **Equals**: Value equals exactly
+- **NotEquals**: Value does not equal
+
+### String Operators
+- **Contains**: String contains substring
+- **DoesNotContain**: String does not contain substring
+- **StartsWith**: String starts with
+- **DoesNotStartWith**: String does not start with
+
+### Comparison Operators
+- **GreaterThan**: Numeric or date greater than
+- **GreaterThanOrEqual**: Greater than or equal to
+- **LessThan**: Numeric or date less than
+- **LessThanOrEqual**: Less than or equal to
+
+<Info>
+Operator names match the Power BI JavaScript SDK filter schema exactly.
+</Info>
+
+## API Endpoints
+
+### List Filters
+
+```http
+GET /reports/filters
+```
+
+Display all available report filters.
+
+**Response Data:**
+- `filters`: Collection of all report filters
+
+**Implementation:** ReportFilterController.php:17-24
+
+**Permission Required:** `report.filter.index` OR `report.filter.create` OR `report.filter.update` OR `report.filter.destroy`
+
+### Create Filter
+
+```http
+POST /reports/filters
+```
+
+**Request Body:**
+```json
+{
+  "name": "Region Filter - North",
+  "table": "Sales",
+  "column": "Region",
+  "operator": "In",
+  "values": "North,Northeast,Northwest"
+}
+```
+
+**Process:**
+1. Validate filter definition
+2. Create new filter record
+3. Return updated filters list
+
+**Response:** JSON array of all filters (200) or error message (500)
+
+**Implementation:** ReportFilterController.php:29-40
+
+**Permission Required:** `report.filter.create`
+
+### Update Filter
+
+```http
+PUT /reports/filters/{id}
+```
+
+**Request Body:**
+```json
+{
+  "name": "Region Filter - North & Central",
+  "table": "Sales",
+  "column": "Region",
+  "operator": "In",
+  "values": "North,Northeast,Northwest,Central"
+}
+```
+
+**Note:** The `id` field is automatically excluded from the update payload.
+
+**Response:** JSON array of all filters (200) or error message (500)
+
+**Implementation:** ReportFilterController.php:45-56
+
+**Permission Required:** `report.filter.update`
+
+### Delete Filter
+
+```http
+DELETE /reports/filters/{id}
+```
+
+**Process:**
+1. Delete filter record
+2. Remove filter assignments from users
+3. Return remaining filters
+
+**Response:** JSON array of remaining filters (200) or error message (500)
+
+**Implementation:** ReportFilterController.php:61-72
+
+**Permission Required:** `report.filter.destroy`
+
+<Note>
+Deleting a filter removes it from all users and reports where it was applied.
+</Note>
+
+## Filter Application
+
+Filters are applied to reports through a many-to-many relationship:
+
+### Pivot Table: `pvt_report_user_filters`
+
+Columns:
+- `report_id`: Foreign key to reports
+- `user_id`: Foreign key to users
+- `filter_id`: Foreign key to report_filters
+
+This structure allows:
+- Multiple filters per user/report combination
+- Same filter applied to different users
+- Same filter applied to different reports
+
+### Assigning Filters to Users
+
+Filters are assigned through the User Management interface:
+
+```http
+POST /users/report/update-filters
+```
+
+**Request Body:**
+```json
+{
+  "user_id": 5,
+  "report_id": 2,
+  "filters": [1, 3, 5]
+}
+```
+
+**Implementation:** UserController.php:191-206
+
+### Retrieving User Filters
+
+The `Report` model includes a relationship that retrieves filters for the authenticated user:
+
+```php
+public function filters(): BelongsToMany
+{
+    return $this->belongsToMany(ReportFilter::class, 'pvt_report_user_filters', 
+                                'report_id', 'filter_id')
+        ->where('user_id', '=', Auth::id())
+        ->withPivot('user_id');
+}
+```
+
+**Implementation:** Report.php:58-63
+
+## Power BI Filter Schema
+
+Filters are converted to Power BI's filter schema when embedding reports:
+
+```json
+{
+  "$schema": "http://powerbi.com/product/schema#basic",
+  "target": {
+    "table": "Sales",
+    "column": "Region"
+  },
+  "operator": "In",
+  "values": ["North", "Northeast", "Northwest"]
+}
+```
+
+### Schema Components
+
+**$schema**: Always `http://powerbi.com/product/schema#basic`
+
+**target**: Identifies the data to filter
+- `table`: Table name in the dataset
+- `column`: Column name in the table
+
+**operator**: Filter operation (see operators section)
+
+**values**: Value(s) to filter by
+- Array for `In` and `NotIn` operators
+- Single value for other operators
+
+### Conversion in Code
+
+The `Report` model's `filter_array` accessor performs the conversion:
+
+```php
+public function getFilterArrayAttribute(): bool|string
+{
+    $filters = $this->filters->toArray();
+    $filters = collect($filters);
+    
+    $filters = $filters->map(function ($row) {
+        return [
+            '$schema' => 'http://powerbi.com/product/schema#basic',
+            'target' => [
+                'table' => $row['table'],
+                'column' => $row['column'],
+            ],
+            'operator' => $row['operator'],
+            'values' => $row['parse_values'],
+        ];
+    });
+    
+    return json_encode($filters);
+}
+```
+
+**Implementation:** Report.php:68-86
+
+## Filter Examples
+
+### Example 1: Regional Sales Filter
+
+**Use Case:** Restrict sales managers to see only their regions.
+
+```json
+{
+  "name": "Sales - North Region Only",
+  "table": "Sales",
+  "column": "Region",
+  "operator": "In",
+  "values": "North,Northeast"
+}
+```
+
+**Result:** User only sees sales data for North and Northeast regions.
+
+### Example 2: Product Category Filter
+
+**Use Case:** Show specific product categories to product managers.
+
+```json
+{
+  "name": "Products - Electronics Only",
+  "table": "Products",
+  "column": "Category",
+  "operator": "Equals",
+  "values": "Electronics"
+}
+```
+
+**Result:** User only sees electronics products.
+
+### Example 3: Date Range Filter
+
+**Use Case:** Restrict historical data access.
+
+```json
+{
+  "name": "Sales - Last 90 Days",
+  "table": "Sales",
+  "column": "OrderDate",
+  "operator": "GreaterThanOrEqual",
+  "values": "2026-01-01"
+}
+```
+
+**Result:** User only sees sales from January 1, 2026 onwards.
+
+### Example 4: Exclude Test Data
+
+**Use Case:** Hide test/demo accounts from production reports.
+
+```json
+{
+  "name": "Customers - Exclude Test Accounts",
+  "table": "Customers",
+  "column": "AccountType",
+  "operator": "NotEquals",
+  "values": "Test"
+}
+```
+
+**Result:** Test accounts are hidden from the report.
+
+## User Interface
+
+The filter management interface provides:
+
+### Filters Table
+- **Columns:** Name, Table, Column, Operator, Values, Actions
+- **Actions:** Edit, Delete
+- **Create Button:** Opens modal for new filter
+
+### Filter Form (Create/Edit)
+- **Name**: Display name for the filter
+- **Table**: Power BI dataset table name
+- **Column**: Column to filter
+- **Operator**: Dropdown with available operators
+- **Values**: Text input (comma-separated for `In` operator)
+- **Save Button**: Submits form
+- **Cancel Button**: Closes modal
+
+## Validation
+
+### Required Fields
+- Name (unique, descriptive)
+- Table (must match Power BI dataset)
+- Column (must match table column)
+- Operator (must be valid Power BI operator)
+- Values (format depends on operator)
+
+### Value Format
+
+**For `In` and `NotIn` operators:**
+- Comma-separated list: `"Value1,Value2,Value3"`
+- No spaces unless part of the value
+- Example: `"North,South,East,West"`
+
+**For other operators:**
+- Single value: `"North"`
+- For dates: ISO format `"2026-01-01"`
+- For numbers: `"1000"`
+
+## Error Handling
+
+Common errors and solutions:
+
+### Invalid Table/Column
+
+**Error:** Report fails to load or shows no data.
+
+**Solution:** Verify table and column names match exactly with Power BI dataset schema (case-sensitive).
+
+### Invalid Operator
+
+**Error:** Filter not applied, full data shown.
+
+**Solution:** Use exact operator names from Power BI schema (e.g., "In" not "in").
+
+### Malformed Values
+
+**Error:** Filter syntax error in browser console.
+
+**Solution:** For `In` operator, ensure values are comma-separated without extra spaces.
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Descriptive Names" icon="tag">
+    Name filters clearly to indicate purpose: "Sales - Region North" not "Filter 1".
+  </Card>
+  <Card title="Test Filters" icon="vial">
+    Test filters with actual reports before assigning to production users.
+  </Card>
+  <Card title="Document Values" icon="book">
+    Keep documentation of valid values for each filter, especially for `In` operators.
+  </Card>
+  <Card title="Avoid Over-Filtering" icon="triangle-exclamation">
+    Too many filters can make reports confusing. Use minimum necessary filters.
+  </Card>
+</CardGroup>
+
+## Filter Combination
+
+Multiple filters applied to the same report are combined with AND logic:
+
+**Example:**
+- Filter 1: Region = "North"
+- Filter 2: Year >= "2026"
+
+**Result:** User sees only North region data from 2026 onwards.
+
+<Info>
+Power BI applies all filters simultaneously. There is no OR logic support at the filter level.
+</Info>
+
+## Usage Workflow
+
+<Steps>
+  <Step title="Identify Filter Need">
+    Determine what data restrictions are needed (e.g., regional access, time ranges).
+  </Step>
+  <Step title="Check Dataset Schema">
+    Open Power BI report and note exact table and column names.
+  </Step>
+  <Step title="Create Filter">
+    Navigate to Report Filters page and click "New Filter". Enter filter details.
+  </Step>
+  <Step title="Select Operator">
+    Choose appropriate operator based on filter type (In for lists, Equals for single values, etc.).
+  </Step>
+  <Step title="Enter Values">
+    For `In` operator, enter comma-separated values. For others, enter single value.
+  </Step>
+  <Step title="Assign to Users">
+    Go to User Management, select user, select report, and assign the filter.
+  </Step>
+  <Step title="Test Filter">
+    Log in as assigned user and verify report shows only expected data.
+  </Step>
+</Steps>
+
+## Related Modules
+
+<CardGroup cols={2}>
+  <Card title="Reports" icon="chart-column">
+    Apply filters to Power BI reports
+  </Card>
+  <Card title="Users" icon="users">
+    Assign filters to specific users
+  </Card>
+  <Card title="Dashboard" icon="gauge">
+    View filtered reports on dashboard
+  </Card>
+</CardGroup>
+
+## Advanced: Dynamic Filters
+
+For filters that need to change based on user attributes (e.g., filter by user's assigned region):
+
+1. Create filter with placeholder in values
+2. Implement custom logic in `PowerBITrait` to replace placeholder
+3. Apply dynamic value before generating embed token
+
+**Example Implementation:**
+```php
+// In PowerBITrait
+protected function applyDynamicFilters($user, $filters) {
+    return $filters->map(function($filter) use ($user) {
+        if ($filter->values === '{USER_REGION}') {
+            $filter->values = $user->region;
+        }
+        return $filter;
+    });
+}
+```
+
+<Note>
+Dynamic filter implementation requires custom code and is not included in the base module.
+</Note>

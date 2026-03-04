@@ -1,122 +1,145 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "GB App - Power BI Report Manager",
+  "theme": "linden",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#0078D4",
+    "light": "#50E6FF",
+    "dark": "#004578"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/xDanielDC/Reportes-Senco"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/xDanielDC/Reportes-Senco"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "installation"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Features",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "features/authentication",
+              "features/power-bi-integration",
+              "features/user-management",
+              "features/report-management",
+              "features/role-permissions"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Configuration",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "configuration/environment",
+              "configuration/database",
+              "configuration/power-bi-api",
+              "configuration/ldap"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Deployment",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "deployment/docker",
+              "deployment/production",
+              "deployment/troubleshooting"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Modules",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Business Modules",
             "pages": [
-              "api-reference/introduction"
+              "modules/design-requests",
+              "modules/price-lists",
+              "modules/technical-routes"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Administration",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "modules/dashboard",
+              "modules/users",
+              "modules/roles",
+              "modules/reports",
+              "modules/filters"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "api/authentication/overview",
+              "api/authentication/two-factor"
+            ]
+          },
+          {
+            "group": "Reports",
+            "pages": [
+              "api/reports/list",
+              "api/reports/create",
+              "api/reports/view",
+              "api/reports/filters"
+            ]
+          },
+          {
+            "group": "Users & Roles",
+            "pages": [
+              "api/users/management",
+              "api/roles/permissions"
+            ]
+          },
+          {
+            "group": "Business APIs",
+            "pages": [
+              "api/design/requests",
+              "api/price-list/search",
+              "api/technical-routes/crud"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Architecture",
+            "pages": [
+              "development/architecture",
+              "development/database-schema",
+              "development/frontend-structure"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "development/setup",
+              "development/coding-standards",
+              "development/testing"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

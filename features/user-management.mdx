@@ -1,0 +1,435 @@
+---
+title: User Management
+description: Create users, manage profiles, assign reports, and handle user relationships in GB App
+---
+
+## Overview
+
+GB App provides comprehensive user management features including:
+
+- User creation and profile management
+- Report assignment to users
+- Role and permission assignment
+- User type management (customer, designer, seller)
+- LDAP user synchronization
+- Technical user relationships (advisor/technical user mapping)
+
+## User Controller
+
+The `UserController` handles all user management operations.
+
+### List Users
+
+```php app/Http/Controllers/UserController.php
+public function index()
+{
+    $users = User::with('reports', 'roles')->get();
+    $roles = Role::all();
+    $reports = Report::all();
+    $technicalUsers = User::whereHas('roles', function ($query) {
+        $query->whereRaw('LOWER(name) IN (?, ?)', ['tecnico', 'técnico']);
+    })
+        ->select(['id', 'name', 'username', 'email', 'codigo_vendedor'])
+        ->orderBy('name')
+        ->get();
+
+    return Inertia::render('Users/Index', [
+        'users' => $users,
+        'roles' => $roles,
+        'reports' => $reports,
+        'technicalUsers' => $technicalUsers,
+    ]);
+}
+```
+
+### Create User
+
+```php app/Http/Controllers/UserController.php
+public function store(Request $request)
+{
+    DB::beginTransaction();
+    try {
+        $user = User::create([
+            'type' => $request->type,
+            'name' => $request->name,
+            'username' => $request->username,
+            'email' => $request->email,
+            'cedula' => $request->cedula ?: null,
+            'codigo_vendedor' => $request->codigo_vendedor ?: null,
+            'password' => bcrypt($request->password),
+        ]);
+        
+        $user->reports()->sync($request->reports);
+        $user->syncRoles($request->roles);
+
+        $selectedRoles = collect($request->roles ?? [])->map(function ($role) {
+            return mb_strtolower(trim($role));
+        });
+
+        if ($selectedRoles->contains('asesor')) {
+            $technicalUserIds = collect($request->technical_users ?? [])
+                ->map(function ($id) {
+                    return (int) $id;
+                })
+                ->filter(function ($id) {
+                    return $id > 0;
+                })
+                ->unique()
+                ->values()
+                ->all();
+
+            $validTechnicalUserIds = User::whereIn('id', $technicalUserIds)
+                ->whereHas('roles', function ($query) {
+                    $query->whereRaw('LOWER(name) IN (?, ?)', ['tecnico', 'técnico']);
+                })
+                ->pluck('id')
+                ->all();
+
+            $user->technicalUsers()->sync($validTechnicalUserIds);
+        }
+
+        DB::commit();
+
+        $users = User::with('reports', 'roles')->get();
+
+        return response()->json($users, 200);
+    } catch (Exception $e) {
+        DB::rollBack();
+        return response()->json($e->getMessage(), 500);
+    }
+}
+```
+
+<Info>
+The user creation process includes:
+1. Creating the user record with bcrypt password hashing
+2. Syncing report assignments
+3. Assigning roles
+4. Linking technical users (if user is an advisor)
+</Info>
+
+### Update User
+
+```php app/Http/Controllers/UserController.php
+public function update(Request $request, $id)
+{
+    DB::beginTransaction();
+    try {
+        $user = User::find($id);
+
+        $user->update([
+            'type' => $request->type,
+            'name' => $request->name,
+            'username' => $request->username,
+            'email' => $request->email,
+            'cedula' => $request->cedula ?: null,
+            'codigo_vendedor' => $request->codigo_vendedor ?: null,
+        ]);
+
+        if ($request->change_password) {
+            $user->password = Hash::make($request->password);
+        }
+
+        $user->save();
+
+        $user->syncPermissions([]);
+        $user->syncRoles($request->roles);
+
+        $selectedRoles = collect($request->roles ?? [])->map(function ($role) {
+            return mb_strtolower(trim($role));
+        });
+
+        if ($selectedRoles->contains('asesor')) {
+            if ($request->exists('technical_users')) {
+                $technicalUserIds = collect($request->technical_users ?? [])
+                    ->map(function ($id) {
+                        return (int) $id;
+                    })
+                    ->filter(function ($id) {
+                        return $id > 0;
+                    })
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                $validTechnicalUserIds = User::whereIn('id', $technicalUserIds)
+                    ->whereHas('roles', function ($query) {
+                        $query->whereRaw('LOWER(name) IN (?, ?)', ['tecnico', 'técnico']);
+                    })
+                    ->pluck('id')
+                    ->all();
+
+                $user->technicalUsers()->sync($validTechnicalUserIds);
+            }
+        } else {
+            $user->technicalUsers()->detach();
+        }
+
+        DB::commit();
+
+        $users = User::with('reports', 'roles')->get();
+
+        return response()->json($users, 200);
+    } catch (Exception $e) {
+        DB::rollBack();
+        return response()->json($e->getMessage(), 500);
+    }
+}
+```
+
+<Warning>
+When updating users, the password is only changed if `change_password` is true. This allows updating user information without requiring a password reset.
+</Warning>
+
+### View User Profile
+
+```php app/Http/Controllers/UserController.php
+public function show($id)
+{
+    $user = User::with('roles', 'permissions', 'reports', 'technicalUsers.roles')
+        ->find($id);
+
+    $roles = Role::all();
+    $reports = Report::all();
+    $filters = ReportFilter::all();
+    $technicalUsers = User::whereHas('roles', function ($query) {
+        $query->whereRaw('LOWER(name) IN (?, ?)', ['tecnico', 'técnico']);
+    })
+        ->select(['id', 'name', 'username', 'email', 'codigo_vendedor'])
+        ->orderBy('name')
+        ->get();
+
+    return Inertia::render('Users/Show', [
+        'user' => $user,
+        'roles' => $roles,
+        'reports' => $reports,
+        'filters' => $filters,
+        'technicalUsers' => $technicalUsers,
+    ]);
+}
+```
+
+### Delete User
+
+```php app/Http/Controllers/UserController.php
+public function destroy($id)
+{
+    User::destroy($id);
+
+    $users = User::with('reports', 'roles')->get();
+
+    return response()->json($users, 200);
+}
+```
+
+## Report Assignment
+
+### Update User Reports
+
+```php app/Http/Controllers/UserController.php
+public function update_reports(Request $request)
+{
+    DB::beginTransaction();
+    try {
+        $user = User::findOrFail($request->user_id);
+        $user->reports()->sync($request->reports);
+
+        DB::commit();
+        return response()->json('success', 200);
+    } catch (Exception $e) {
+        DB::rollBack();
+        return response()->json($e->getMessage(), 500);
+    }
+}
+```
+
+### Set Default Report
+
+```php app/Http/Controllers/UserController.php
+public function set_default(Request $request)
+{
+    $user = User::find($request->user_id);
+
+    $user->reports()->updateExistingPivot($request->report_id, [
+        'show' => $request->state,
+    ]);
+
+    return response()->json('success', 200);
+}
+```
+
+### Update Report Filters
+
+```php app/Http/Controllers/UserController.php
+public function update_filters(Request $request)
+{
+    DB::beginTransaction();
+    try {
+        $user = User::with('reports.filters')->find($request->user_id);
+        $user->reports()
+             ->find($request->report_id)
+             ->filters()
+             ->syncWithPivotValues($request->filters, ['user_id' => $request->user_id]);
+
+        DB::commit();
+
+        return response()->json('success', 200);
+    } catch (Exception $e) {
+        DB::rollBack();
+
+        return response()->json($e->getMessage(), 500);
+    }
+}
+```
+
+## User Model
+
+The User model includes relationships and methods for user management:
+
+```php app/Models/User.php
+protected $fillable = [
+    'name',
+    'username',
+    'email',
+    'password',
+    'type',
+    'guid',           // LDAP GUID
+    'domain',         // LDAP domain
+    'is_ldap_user',   // LDAP flag
+    'cedula',         // ID number
+    'codigo_vendedor', // Seller code
+    'advisor_id',
+];
+
+public function reports(): BelongsToMany
+{
+    return $this->belongsToMany(Report::class, 'user_reports')
+        ->withPivot('user_id', 'report_id');
+}
+
+public function advisor(): BelongsTo
+{
+    return $this->belongsTo(self::class, 'advisor_id');
+}
+
+public function technicalUsers(): BelongsToMany
+{
+    return $this->belongsToMany(self::class, 'advisor_technical_user', 'advisor_id', 'technical_user_id')
+        ->withTimestamps();
+}
+
+public function advisors(): BelongsToMany
+{
+    return $this->belongsToMany(self::class, 'advisor_technical_user', 'technical_user_id', 'advisor_id')
+        ->withTimestamps();
+}
+
+public function getRoleNamesAttribute(): Collection
+{
+    return $this->getRoleNames();
+}
+
+public function getPermissionNamesAttribute(): Collection
+{
+    return $this->getAllPermissions()->pluck('name');
+}
+```
+
+## Routes
+
+```php routes/web.php
+Route::prefix('users')->group(function () {
+    Route::get('', [UserController::class, 'index'])
+        ->name('users.index')
+        ->middleware('role_or_permission:super-admin|user.index|user.create|user.update|user.destroy');
+
+    Route::get('{id}/show', [UserController::class, 'show'])
+        ->name('users.show')
+        ->middleware('role_or_permission:super-admin|user.index|user.show');
+
+    Route::post('', [UserController::class, 'store'])
+        ->name('users.store')
+        ->middleware('role_or_permission:super-admin|user.index|user.create');
+
+    Route::put('{id}', [UserController::class, 'update'])
+        ->name('users.update')
+        ->middleware('role_or_permission:super-admin|user.index|user.update');
+
+    Route::delete('{id}', [UserController::class, 'destroy'])
+        ->name('users.destroy')
+        ->middleware('role_or_permission:super-admin|user.index|user.destroy');
+
+    Route::post('update-reports', [UserController::class, 'update_reports'])
+        ->name('user.update-reports')
+        ->middleware('role_or_permission:super-admin|update-reports');
+
+    Route::post('report/update-filters', [UserController::class, 'update_filters'])
+        ->name('user.report.update-filters')
+        ->middleware('role_or_permission:super-admin|update-filters');
+
+    Route::post('report/set-default', [UserController::class, 'set_default'])
+        ->name('user.report.set-default')
+        ->middleware('role_or_permission:super-admin|set-default');
+});
+```
+
+## User Types
+
+GB App supports three user types:
+
+<CodeGroup>
+
+```php User Types
+enum('type', ['customer', 'designer', 'seller'])->nullable()
+```
+
+</CodeGroup>
+
+- **customer**: End users who view reports
+- **designer**: Users who create and manage design requests
+- **seller**: Sales representatives with specific access rights
+
+## Technical User Relationships
+
+The system supports advisor-technical user relationships:
+
+### Advisor Technical User Table
+
+```
+advisor_technical_user
+- advisor_id (references users.id)
+- technical_user_id (references users.id)
+- timestamps
+```
+
+### Use Cases
+
+1. **Advisors** can be linked to multiple **Technical Users**
+2. **Technical Users** can support multiple **Advisors**
+3. This relationship is used for:
+   - Routing technical requests
+   - Access control
+   - Reporting hierarchies
+
+<Note>
+Only users with the "tecnico" or "técnico" role can be assigned as technical users.
+</Note>
+
+## LDAP Users
+
+Users can be created locally or synchronized from LDAP:
+
+- **Local Users**: `is_ldap_user = false`, password stored in database
+- **LDAP Users**: `is_ldap_user = true`, authenticated via Active Directory
+
+LDAP users have additional fields:
+- `guid`: Active Directory GUID
+- `domain`: LDAP domain name
+
+See [LDAP Configuration](/configuration/ldap) for more details.
+
+## Next Steps
+
+- [Configure role-based permissions](/features/role-permissions)
+- [Assign reports to users](/features/report-management)
+- [Set up LDAP synchronization](/configuration/ldap)

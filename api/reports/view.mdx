@@ -1,0 +1,275 @@
+---
+title: 'View Report'
+description: 'GET /reports/{groupId}/{reportId}/view - View embedded Power BI report'
+---
+
+## View Power BI Report
+
+Retrieve embed configuration and access token for viewing a Power BI report.
+
+```bash
+GET /reports/{groupId}/{reportId}/view
+```
+
+### Path Parameters
+
+<ParamField path="groupId" type="string" required>
+  Power BI workspace/group ID (UUID)
+</ParamField>
+
+<ParamField path="reportId" type="string" required>
+  Power BI report ID (UUID)
+</ParamField>
+
+### Authentication
+
+<ParamField header="Authorization" type="string" required>
+  Valid session or Sanctum token
+</ParamField>
+
+### Authorization Behavior
+
+<Accordion title="Super Admin Users">
+  Can view any report in the system
+</Accordion>
+
+<Accordion title="Regular Users">
+  Can only view reports assigned to them. Returns 403 if report not assigned.
+</Accordion>
+
+### Token Management
+
+The endpoint automatically manages Power BI embed tokens:
+
+1. **Token Exists & Valid**: Returns cached token from database
+2. **Token Expired/Missing**: Requests new token from Power BI API
+3. **Token Refresh**: Updates database with new token and expiration
+
+### Response
+
+<ResponseField name="report" type="object">
+  Complete report object with embed configuration
+</ResponseField>
+
+<ResponseField name="report.id" type="integer">
+  Report database ID
+</ResponseField>
+
+<ResponseField name="report.name" type="string">
+  Report display name
+</ResponseField>
+
+<ResponseField name="report.group_id" type="string">
+  Power BI workspace ID
+</ResponseField>
+
+<ResponseField name="report.report_id" type="string">
+  Power BI report ID
+</ResponseField>
+
+<ResponseField name="report.token" type="string">
+  Power BI embed token (JWT)
+</ResponseField>
+
+<ResponseField name="report.expiration_date" type="datetime">
+  Token expiration timestamp
+</ResponseField>
+
+<ResponseField name="report.embedUrl" type="string">
+  Power BI embed URL
+</ResponseField>
+
+<ResponseField name="report.userAccessToken" type="string">
+  User-level Power BI access token
+</ResponseField>
+
+<ResponseField name="report.filters" type="array">
+  Array of applied filters for this report
+</ResponseField>
+
+<ResponseField name="report.filter_array" type="string">
+  JSON-encoded Power BI filter configuration
+</ResponseField>
+
+<ResponseField name="report.user" type="array">
+  Users assigned to this report
+</ResponseField>
+
+<ResponseField name="report.created_by" type="object">
+  User who created the report
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET "https://your-domain.com/reports/f089354e-8366-4e18-aea3-4cb4a3a50b48/5b218778-e7a5-4d73-8187-f10824047715/view" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+### Example Response (Success)
+
+```json
+{
+  "report": {
+    "id": 1,
+    "name": "Sales Dashboard",
+    "group_id": "f089354e-8366-4e18-aea3-4cb4a3a50b48",
+    "report_id": "5b218778-e7a5-4d73-8187-f10824047715",
+    "dataset_id": "cfafbeb1-8037-4d0c-896e-a46fb27ff229",
+    "access_level": "View",
+    "token": "H4sIAAAAAAAEAB2RxQ7cMAhE/8XnRsY2YJJbP6Wq9tAqUqQoiVZV1H9vXO1tRjMw8PCMfHwHhZu5MvZKl...",
+    "expiration_date": "2026-03-04 11:30:00",
+    "embedUrl": "https://app.powerbi.com/reportEmbed?reportId=5b218778-e7a5-4d73-8187-f10824047715&groupId=f089354e-8366-4e18-aea3-4cb4a3a50b48",
+    "userAccessToken": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6...",
+    "user_id": 1,
+    "filter_array": "[{\"$schema\":\"http://powerbi.com/product/schema#basic\",\"target\":{\"table\":\"Sales\",\"column\":\"Region\"},\"operator\":\"In\",\"values\":[\"North\"]}]",
+    "created_at": "2026-01-15 14:30:00",
+    "updated_at": "2026-03-04 10:25:00",
+    "filters": [
+      {
+        "id": 1,
+        "name": "Region Filter",
+        "table": "Sales",
+        "column": "Region",
+        "operator": "In",
+        "values": "North",
+        "parse_values": ["North"]
+      }
+    ],
+    "user": [
+      {
+        "id": 2,
+        "name": "Jane Smith",
+        "email": "jane.smith@example.com"
+      }
+    ],
+    "created_by": {
+      "id": 1,
+      "name": "John Doe",
+      "email": "john.doe@example.com"
+    }
+  }
+}
+```
+
+## Embed URL Format
+
+The `embedUrl` follows this pattern:
+
+```
+https://app.powerbi.com/reportEmbed?reportId={reportId}&groupId={groupId}
+```
+
+Use this URL with the Power BI JavaScript SDK for embedding.
+
+## Using the Embed Token
+
+### JavaScript Example
+
+```javascript
+const config = {
+  type: 'report',
+  tokenType: models.TokenType.Embed,
+  accessToken: report.token,
+  embedUrl: report.embedUrl,
+  id: report.report_id,
+  permissions: models.Permissions.Read,
+  settings: {
+    filterPaneEnabled: true,
+    navContentPaneEnabled: true
+  }
+};
+
+// Embed report
+const reportContainer = document.getElementById('reportContainer');
+const embeddedReport = powerbi.embed(reportContainer, config);
+```
+
+## Token Expiration
+
+Power BI embed tokens typically expire after **1 hour**. The endpoint:
+
+1. Checks if `expiration_date` is in the future
+2. Returns cached token if valid
+3. Requests new token if expired
+4. Updates database with new token and expiration
+
+<Warning>
+Always check `expiration_date` before using a cached token. Implement token refresh logic in your frontend.
+</Warning>
+
+## Applying Filters
+
+Filters from the `filter_array` field can be applied to the embedded report:
+
+```javascript
+const filters = JSON.parse(report.filter_array);
+
+embeddedReport.setFilters(filters)
+  .then(() => {
+    console.log('Filters applied successfully');
+  })
+  .catch((error) => {
+    console.error('Error applying filters:', error);
+  });
+```
+
+## Error Responses
+
+### 403 Forbidden (Not Assigned)
+
+User does not have access to this report:
+
+```
+Abort: 403
+```
+
+### Power BI API Error
+
+If token generation fails, redirects to report index with error message:
+
+```
+Redirect to: /reports
+Flash message: "Failed to generate embed token: [error details]"
+```
+
+### 404 Not Found
+
+Report does not exist in database:
+
+```json
+{
+  "message": "Report not found"
+}
+```
+
+## Implementation Notes
+
+**Source:** `app/Http/Controllers/ReportController.php:57-100`
+
+### Power BI Integration
+
+Uses the `PowerBITrait` for:
+- `getUserAccessToken()` - Gets user-level Power BI access token
+- `getReportAccessToken()` - Gets report embed token
+
+### Database Updates
+
+Token and expiration are saved to avoid unnecessary Power BI API calls:
+
+```php
+$report->token = $token->token;
+$report->expiration_date = $token->expiration;
+$report->save();
+```
+
+### View Rendering
+
+Returns Inertia response for SPA rendering:
+
+```php
+Inertia::render('Report/View', [
+    'report' => $report,
+]);
+```

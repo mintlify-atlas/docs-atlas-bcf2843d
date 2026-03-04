@@ -1,0 +1,621 @@
+---
+title: Testing
+description: Write and run automated tests for GB App using PHPUnit and Laravel testing tools
+---
+
+## Overview
+
+GB App uses PHPUnit for automated testing with Laravel's testing helpers. The test suite covers feature tests (HTTP endpoints) and unit tests (individual classes).
+
+## Test Structure
+
+```
+tests/
+├── Feature/                    # Feature tests (HTTP, integration)
+│   ├── Auth/
+│   │   ├── LoginTest.php
+│   │   ├── TwoFactorAuthenticationTest.php
+│   │   └── PasswordResetTest.php
+│   ├── ReportControllerTest.php
+│   ├── UserControllerTest.php
+│   ├── RoleControllerTest.php
+│   └── DesignRequestTest.php
+├── Unit/                       # Unit tests (isolated classes)
+│   ├── Models/
+│   │   ├── UserTest.php
+│   │   └── ReportTest.php
+│   └── Traits/
+│       └── PowerBITraitTest.php
+├── TestCase.php                # Base test case
+└── CreatesApplication.php      # Application factory
+```
+
+## Running Tests
+
+### Run All Tests
+
+```bash
+php artisan test
+```
+
+### Run Specific Test File
+
+```bash
+php artisan test tests/Feature/ReportControllerTest.php
+```
+
+### Run Specific Test Method
+
+```bash
+php artisan test --filter testUserCanViewReports
+```
+
+### Run Tests with Coverage
+
+```bash
+php artisan test --coverage
+```
+
+### Parallel Testing
+
+Run tests in parallel for faster execution:
+
+```bash
+php artisan test --parallel
+```
+
+## Test Configuration
+
+### PHPUnit Configuration
+
+**File**: `phpunit.xml`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="./vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true">
+    <testsuites>
+        <testsuite name="Feature">
+            <directory suffix="Test.php">./tests/Feature</directory>
+        </testsuite>
+        <testsuite name="Unit">
+            <directory suffix="Test.php">./tests/Unit</directory>
+        </testsuite>
+    </testsuites>
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="DB_CONNECTION" value="mysql"/>
+        <env name="DB_DATABASE" value="gbapp_test"/>
+        <env name="CACHE_DRIVER" value="array"/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="SESSION_DRIVER" value="array"/>
+    </php>
+</phpunit>
+```
+
+### Test Database
+
+Create a separate test database:
+
+```sql
+CREATE DATABASE gbapp_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+<Warning>
+  Never run tests against your production database. Always use a dedicated test database.
+</Warning>
+
+## Writing Feature Tests
+
+### Authentication Tests
+
+**File**: `tests/Feature/Auth/LoginTest.php`
+
+```php
+namespace Tests\Feature\Auth;
+
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class LoginTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_login_screen_can_be_rendered(): void
+    {
+        $response = $this->get('/login');
+
+        $response->assertStatus(200);
+    }
+
+    public function test_users_can_authenticate_using_the_login_screen(): void
+    {
+        $user = User::factory()->create();
+
+        $response = $this->post('/login', [
+            'email' => $user->email,
+            'password' => 'password',
+        ]);
+
+        $this->assertAuthenticated();
+        $response->assertRedirect(route('dashboard'));
+    }
+
+    public function test_users_cannot_authenticate_with_invalid_password(): void
+    {
+        $user = User::factory()->create();
+
+        $this->post('/login', [
+            'email' => $user->email,
+            'password' => 'wrong-password',
+        ]);
+
+        $this->assertGuest();
+    }
+}
+```
+
+### Controller Tests
+
+**File**: `tests/Feature/ReportControllerTest.php`
+
+```php
+namespace Tests\Feature;
+
+use App\Models\User;
+use App\Models\Report;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class ReportControllerTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_authenticated_user_can_view_reports(): void
+    {
+        $user = User::factory()->create();
+        $reports = Report::factory()->count(3)->create();
+        
+        $user->reports()->attach($reports);
+
+        $response = $this->actingAs($user)
+            ->get(route('report.index'));
+
+        $response->assertStatus(200);
+        $response->assertInertia(fn ($page) => 
+            $page->component('Report/Index')
+                ->has('reports', 3)
+        );
+    }
+
+    public function test_user_can_create_report(): void
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('report.create');
+
+        $reportData = [
+            'name' => 'Test Report',
+            'group_id' => 'test-group-id',
+            'report_id' => 'test-report-id',
+            'dataset_id' => 'test-dataset-id',
+            'access_level' => 'View',
+        ];
+
+        $response = $this->actingAs($user)
+            ->post(route('report.store'), $reportData);
+
+        $response->assertStatus(200);
+        $this->assertDatabaseHas('reports', [
+            'name' => 'Test Report',
+            'user_id' => $user->id,
+        ]);
+    }
+
+    public function test_user_without_permission_cannot_create_report(): void
+    {
+        $user = User::factory()->create();
+        // No permission assigned
+
+        $response = $this->actingAs($user)
+            ->post(route('report.store'), [
+                'name' => 'Test Report',
+            ]);
+
+        $response->assertStatus(403);
+    }
+
+    public function test_super_admin_can_see_all_reports(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('super-admin');
+        
+        $reports = Report::factory()->count(5)->create();
+
+        $response = $this->actingAs($admin)
+            ->get(route('report.index'));
+
+        $response->assertStatus(200);
+        $response->assertInertia(fn ($page) => 
+            $page->has('reports', 5)
+        );
+    }
+}
+```
+
+## Writing Unit Tests
+
+### Model Tests
+
+**File**: `tests/Unit/Models/UserTest.php`
+
+```php
+namespace Tests\Unit\Models;
+
+use App\Models\User;
+use App\Models\Report;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class UserTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_user_has_reports_relationship(): void
+    {
+        $user = User::factory()->create();
+        $report = Report::factory()->create();
+        
+        $user->reports()->attach($report);
+
+        $this->assertInstanceOf('Illuminate\Database\Eloquent\Collection', $user->reports);
+        $this->assertEquals(1, $user->reports->count());
+    }
+
+    public function test_user_can_check_permission(): void
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('report.create');
+
+        $this->assertTrue($user->can('report.create'));
+        $this->assertFalse($user->can('report.delete'));
+    }
+
+    public function test_user_can_have_advisor(): void
+    {
+        $advisor = User::factory()->create();
+        $technician = User::factory()->create(['advisor_id' => $advisor->id]);
+
+        $this->assertEquals($advisor->id, $technician->advisor->id);
+    }
+}
+```
+
+### Trait Tests
+
+**File**: `tests/Unit/Traits/PowerBITraitTest.php`
+
+```php
+namespace Tests\Unit\Traits;
+
+use App\Traits\PowerBITrait;
+use Illuminate\Support\Facades\Http;
+use Tests\TestCase;
+
+class PowerBITraitTest extends TestCase
+{
+    use PowerBITrait;
+
+    public function test_get_user_access_token_returns_token(): void
+    {
+        Http::fake([
+            'https://login.windows.net/*' => Http::response([
+                'access_token' => 'fake-access-token',
+            ], 200),
+        ]);
+
+        config([
+            'power-bi.username' => 'test@example.com',
+            'power-bi.password' => 'password',
+        ]);
+
+        $token = $this->getUserAccessToken();
+
+        $this->assertEquals('fake-access-token', $token);
+    }
+}
+```
+
+## Test Factories
+
+### User Factory
+
+**File**: `database/factories/UserFactory.php`
+
+```php
+namespace Database\Factories;
+
+use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Str;
+
+class UserFactory extends Factory
+{
+    public function definition(): array
+    {
+        return [
+            'name' => fake()->name(),
+            'email' => fake()->unique()->safeEmail(),
+            'email_verified_at' => now(),
+            'password' => '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
+            'remember_token' => Str::random(10),
+        ];
+    }
+
+    public function unverified(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'email_verified_at' => null,
+        ]);
+    }
+}
+```
+
+### Report Factory
+
+**File**: `database/factories/ReportFactory.php`
+
+```php
+namespace Database\Factories;
+
+use App\Models\User;
+use Illuminate\Database\Eloquent\Factories\Factory;
+
+class ReportFactory extends Factory
+{
+    public function definition(): array
+    {
+        return [
+            'name' => fake()->words(3, true),
+            'group_id' => fake()->uuid(),
+            'report_id' => fake()->uuid(),
+            'dataset_id' => fake()->uuid(),
+            'access_level' => fake()->randomElement(['View', 'Edit', 'Create']),
+            'user_id' => User::factory(),
+        ];
+    }
+}
+```
+
+## Database Testing
+
+### RefreshDatabase Trait
+
+Use `RefreshDatabase` to reset the database between tests:
+
+```php
+use Illuminate\Foundation\Testing\RefreshDatabase;
+
+class ReportControllerTest extends TestCase
+{
+    use RefreshDatabase;
+
+    // Database is migrated fresh before each test
+}
+```
+
+### Database Assertions
+
+```php
+// Assert record exists
+$this->assertDatabaseHas('reports', [
+    'name' => 'Test Report',
+    'user_id' => $user->id,
+]);
+
+// Assert record doesn't exist
+$this->assertDatabaseMissing('reports', [
+    'name' => 'Deleted Report',
+]);
+
+// Assert record count
+$this->assertDatabaseCount('reports', 5);
+
+// Assert soft deleted
+$this->assertSoftDeleted('reports', [
+    'id' => $report->id,
+]);
+```
+
+## HTTP Testing
+
+### Assertions
+
+```php
+// Status code
+$response->assertStatus(200);
+$response->assertOk();
+$response->assertCreated();
+$response->assertNoContent();
+$response->assertNotFound();
+$response->assertForbidden();
+$response->assertUnauthorized();
+
+// Redirects
+$response->assertRedirect(route('dashboard'));
+
+// JSON response
+$response->assertJson([
+    'name' => 'Test Report',
+]);
+
+// Inertia
+$response->assertInertia(fn ($page) => 
+    $page->component('Report/Index')
+        ->has('reports', 10)
+        ->where('flash.success', 'Report created')
+);
+```
+
+## Mocking External Services
+
+### HTTP Mocking
+
+Mock Power BI API calls:
+
+```php
+use Illuminate\Support\Facades\Http;
+
+public function test_power_bi_token_generation(): void
+{
+    Http::fake([
+        'https://login.windows.net/*' => Http::response([
+            'access_token' => 'fake-user-token',
+        ], 200),
+        'https://api.powerbi.com/*/GenerateToken' => Http::response([
+            'token' => 'fake-embed-token',
+            'tokenId' => 'token-id',
+            'expiration' => now()->addHours(1)->toIso8601String(),
+        ], 200),
+    ]);
+
+    $user = User::factory()->create();
+    $report = Report::factory()->create();
+
+    $response = $this->actingAs($user)
+        ->get(route('report.view', [$report->group_id, $report->report_id]));
+
+    $response->assertOk();
+    Http::assertSentCount(2);
+}
+```
+
+## Testing Best Practices
+
+### 1. Test One Thing Per Test
+
+```php
+// Good
+public function test_user_can_create_report(): void { }
+public function test_report_requires_name(): void { }
+
+// Bad
+public function test_report_creation(): void
+{
+    // Tests creation, validation, permissions, etc.
+}
+```
+
+### 2. Use Descriptive Test Names
+
+```php
+// Good
+public function test_user_without_permission_cannot_delete_report(): void
+
+// Bad
+public function test_delete(): void
+```
+
+### 3. Arrange, Act, Assert Pattern
+
+```php
+public function test_user_can_update_report(): void
+{
+    // Arrange
+    $user = User::factory()->create();
+    $user->givePermissionTo('report.update');
+    $report = Report::factory()->create();
+
+    // Act
+    $response = $this->actingAs($user)
+        ->put(route('report.update', $report), [
+            'name' => 'Updated Name',
+        ]);
+
+    // Assert
+    $response->assertOk();
+    $this->assertDatabaseHas('reports', [
+        'id' => $report->id,
+        'name' => 'Updated Name',
+    ]);
+}
+```
+
+### 4. Clean Up After Tests
+
+Use `RefreshDatabase` or clean up manually:
+
+```php
+protected function tearDown(): void
+{
+    // Clean up
+    parent::tearDown();
+}
+```
+
+## Continuous Integration
+
+### GitHub Actions Example
+
+**File**: `.github/workflows/tests.yml`
+
+```yaml
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: gbapp_test
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.2
+          extensions: mbstring, pdo, pdo_mysql
+      
+      - name: Install Dependencies
+        run: composer install --no-interaction --prefer-dist
+      
+      - name: Run Tests
+        env:
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: gbapp_test
+          DB_USERNAME: root
+          DB_PASSWORD: password
+        run: php artisan test --coverage
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Development Setup" href="/development/setup">
+    Set up your testing environment
+  </Card>
+  <Card title="Coding Standards" href="/development/coding-standards">
+    Follow code quality guidelines
+  </Card>
+  <Card title="Architecture" href="/development/architecture">
+    Understand the system design
+  </Card>
+  <Card title="API Reference" href="/api/authentication/overview">
+    Test API endpoints
+  </Card>
+</CardGroup>
